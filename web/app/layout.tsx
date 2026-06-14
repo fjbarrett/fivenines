@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import Script from "next/script";
 import "./globals.css";
 
@@ -24,7 +25,10 @@ export default function RootLayout({
       <body className="min-h-full flex flex-col">
         {children}
         <footer className="border-t border-white/[0.06] px-6 py-6 text-center font-mono text-xs text-slate-600 lg:px-12">
-          © {year} Availability
+          <Link href="/about" className="text-slate-500 transition hover:text-slate-300">
+            about
+          </Link>
+          <span className="mx-2 text-slate-700">·</span>© {year} Availability
         </footer>
         {gaId && (
           <>
