@@ -31,34 +31,24 @@ const TONE: Record<State, { dot: string; text: string; badge: string }> = {
 // State is conveyed by the dot color (not a word). The body shows the one thing
 // that matters: how many regions are down — or, when nothing is, the neutral
 // scope / reachability line.
+// Minimal: logo, name, and a pulsing status "blinker" whose color is the state.
 function ProviderCard({ p }: { p: ProviderAgg }) {
   const t = TONE[p.current.state];
-  const headline = p.detail?.headline || p.current.status_detail || "—";
-  const down = p.regionsTotal ? p.regionsTotal - (p.regionsUp ?? 0) : 0;
   return (
     <Link
       href={`/provider/${p.key}`}
-      className="group block w-full rounded-xl border border-white/[0.06] bg-white/[0.02] p-4 transition hover:border-white/20 hover:bg-white/[0.04]"
+      className="group flex w-full items-center gap-3 rounded-xl border border-white/[0.06] bg-white/[0.02] p-4 transition hover:border-white/20 hover:bg-white/[0.04]"
     >
-      <div className="flex items-center gap-3">
-        <ProviderLogo keyId={p.key} />
-        <h3 className="min-w-0 flex-1 truncate font-medium text-slate-100">{p.name}</h3>
-        <span
-          className={`h-2.5 w-2.5 shrink-0 rounded-full ${t.dot}`}
-          title={p.current.state}
-          aria-label={p.current.state}
-        />
-      </div>
-
-      {down > 0 ? (
-        <p className={`mt-3 text-sm font-medium ${t.text}`}>
-          {down} region{down > 1 ? "s" : ""} down
-        </p>
-      ) : p.regionsTotal ? (
-        <p className="mt-3 text-sm text-slate-500">{p.regionsTotal} regions</p>
-      ) : (
-        <p className="mt-3 truncate text-sm text-slate-500">{headline}</p>
-      )}
+      <ProviderLogo keyId={p.key} />
+      <h3 className="min-w-0 flex-1 truncate font-medium text-slate-100">{p.name}</h3>
+      <span
+        className="relative flex h-2.5 w-2.5 shrink-0"
+        title={p.current.state}
+        aria-label={p.current.state}
+      >
+        <span className={`absolute inline-flex h-full w-full animate-ping rounded-full opacity-60 ${t.dot}`} />
+        <span className={`relative inline-flex h-2.5 w-2.5 rounded-full ${t.dot}`} />
+      </span>
     </Link>
   );
 }
@@ -115,7 +105,7 @@ export default async function Home() {
   const providers = data?.providers ?? [];
 
   return (
-    <div className="mx-auto w-full max-w-[160rem] flex-1 px-5 py-6">
+    <div className="mx-auto w-full max-w-[160rem] flex-1 px-6 py-6 lg:px-12">
       <TopIncident providers={providers} />
 
       {error && (

@@ -23,8 +23,8 @@ export default function RootLayout({
     <html lang="en" className="h-full antialiased">
       <body className="min-h-full flex flex-col">
         {children}
-        <footer className="border-t border-white/[0.06] px-5 py-6 text-center font-mono text-xs text-slate-600">
-          © {year} 9s
+        <footer className="border-t border-white/[0.06] px-6 py-6 text-center font-mono text-xs text-slate-600 lg:px-12">
+          © {year} Availability
         </footer>
         {gaId && (
           <>

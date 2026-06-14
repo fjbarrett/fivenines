@@ -522,7 +522,7 @@ export default async function ProviderPage({ params }: { params: Promise<{ key: 
   const d = p.detail;
 
   return (
-    <div className="mx-auto w-full max-w-[160rem] flex-1 px-5 py-6">
+    <div className="mx-auto w-full max-w-[160rem] flex-1 px-6 py-6 lg:px-12">
       <Link
         href="/"
         className="font-mono text-sm text-slate-500 transition hover:text-slate-300"
