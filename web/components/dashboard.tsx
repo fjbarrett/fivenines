@@ -158,7 +158,7 @@ export function TopIncident({ providers }: { providers: ProviderAgg[] }) {
 
 export function ProviderGrid({ providers }: { providers: ProviderAgg[] }) {
   return (
-    <section className="grid gap-8 grid-cols-[repeat(auto-fill,minmax(min(20rem,100%),1fr))]">
+    <section className="grid gap-3 grid-cols-[repeat(auto-fill,minmax(min(20rem,100%),1fr))]">
       {providers.map((p) => (
         <ProviderCard key={p.key} p={p} />
       ))}
