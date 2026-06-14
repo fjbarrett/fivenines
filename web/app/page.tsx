@@ -1,66 +1,64 @@
-"use client";
-
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
 import type { Dashboard, Incident, ProviderAgg, State } from "@/lib/aggregate";
+import { getDashboard } from "@/lib/data";
 import { ProviderLogo } from "@/lib/provider-logos";
 
-const TONE: Record<State, { dot: string; text: string; badge: string; bar: string }> = {
+export const dynamic = "force-dynamic"; // always read the latest scan, server-side
+
+const TONE: Record<State, { dot: string; text: string; badge: string }> = {
   UP: {
     dot: "bg-emerald-400",
     text: "text-emerald-400",
     badge: "bg-emerald-400/10 text-emerald-300 ring-1 ring-emerald-400/30",
-    bar: "bg-emerald-400",
   },
   DEGRADED: {
     dot: "bg-amber-400",
     text: "text-amber-400",
     badge: "bg-amber-400/10 text-amber-300 ring-1 ring-amber-400/30",
-    bar: "bg-amber-400",
   },
   DOWN: {
     dot: "bg-rose-500",
     text: "text-rose-400",
     badge: "bg-rose-500/10 text-rose-300 ring-1 ring-rose-500/30",
-    bar: "bg-rose-500",
   },
   UNKNOWN: {
     dot: "bg-slate-500",
     text: "text-slate-400",
     badge: "bg-slate-500/10 text-slate-300 ring-1 ring-slate-500/30",
-    bar: "bg-slate-600",
   },
 };
 
+// State is conveyed by the dot color (not a word). The body shows the one thing
+// that matters: how many regions are down — or, when nothing is, the neutral
+// scope / reachability line.
 function ProviderCard({ p }: { p: ProviderAgg }) {
   const t = TONE[p.current.state];
-  const c = p.current;
-  const headline = p.detail?.headline || c.status_detail || "—";
+  const headline = p.detail?.headline || p.current.status_detail || "—";
+  const down = p.regionsTotal ? p.regionsTotal - (p.regionsUp ?? 0) : 0;
   return (
     <Link
       href={`/provider/${p.key}`}
-      className="group block w-full rounded-lg border border-white/[0.06] bg-white/[0.02] p-4 text-left transition hover:border-white/20 hover:bg-white/[0.035]"
+      className="group block w-full rounded-xl border border-white/[0.06] bg-white/[0.02] p-4 transition hover:border-white/20 hover:bg-white/[0.04]"
     >
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex min-w-0 items-center gap-2.5">
-          <ProviderLogo keyId={p.key} />
-          <h3 className="truncate font-medium text-slate-100">{p.name}</h3>
-        </div>
+      <div className="flex items-center gap-3">
+        <ProviderLogo keyId={p.key} />
+        <h3 className="min-w-0 flex-1 truncate font-medium text-slate-100">{p.name}</h3>
         <span
-          className={`shrink-0 font-mono text-[11px] font-semibold uppercase tracking-wider ${t.text}`}
-        >
-          {p.current.state}
-        </span>
+          className={`h-2.5 w-2.5 shrink-0 rounded-full ${t.dot}`}
+          title={p.current.state}
+          aria-label={p.current.state}
+        />
       </div>
 
-      <p className="mt-1.5 line-clamp-1 text-sm text-slate-400">{headline}</p>
-
-      {p.regionsTotal ? (
-        <p className="mt-3 text-sm text-slate-400">
-          <span className="font-mono font-semibold text-slate-200">{p.regionsUp}</span>
-          <span className="text-slate-500"> / {p.regionsTotal}</span> regions up
+      {down > 0 ? (
+        <p className={`mt-3 text-sm font-medium ${t.text}`}>
+          {down} region{down > 1 ? "s" : ""} down
         </p>
-      ) : null}
+      ) : p.regionsTotal ? (
+        <p className="mt-3 text-sm text-slate-500">{p.regionsTotal} regions</p>
+      ) : (
+        <p className="mt-3 truncate text-sm text-slate-500">{headline}</p>
+      )}
     </Link>
   );
 }
@@ -72,8 +70,9 @@ function impactRank(impact: string): number {
   return m[impact.toLowerCase()] ?? 1;
 }
 
-// Reads every provider's incident feed, picks the single most important *ongoing*
-// incident, and shows it as a banner linking to its detail page.
+// Surfaces only a *major* ongoing incident (critical/major/high impact) as a
+// banner, sourced from the providers' status-feed severity. Minor degradations
+// don't get a banner — the per-card dots already show those.
 function TopIncident({ providers }: { providers: ProviderAgg[] }) {
   let best: { p: ProviderAgg; inc: Incident; score: number } | null = null;
   for (const p of providers) {
@@ -89,8 +88,8 @@ function TopIncident({ providers }: { providers: ProviderAgg[] }) {
       }
     }
   }
-  if (!best) return null;
-  const t = best.score >= 3 ? TONE.DOWN : TONE.DEGRADED;
+  if (!best || best.score < 3) return null; // major / critical only
+  const t = TONE.DOWN;
   return (
     <Link
       href={`/provider/${best.p.key}/incident/${encodeURIComponent(best.inc.id)}`}
@@ -105,56 +104,19 @@ function TopIncident({ providers }: { providers: ProviderAgg[] }) {
   );
 }
 
-// Only shown when something is wrong — one independent, clickable pill per
-// provider, each tinted by and labeled with its own state.
-function StatusBanner({ affected }: { affected: ProviderAgg[] }) {
-  if (affected.length === 0) return null;
-  return (
-    <div className="mt-5 flex flex-wrap items-center gap-1.5">
-      {affected.map((p) => {
-        const pt = TONE[p.current.state];
-        const word = p.current.state === "DEGRADED" ? "degraded" : "down";
-        return (
-          <Link
-            key={p.key}
-            href={`/provider/${p.key}`}
-            className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs transition hover:brightness-125 ${pt.badge}`}
-          >
-            <span className={`h-1.5 w-1.5 rounded-full ${pt.dot}`} />
-            <span className="font-medium">{p.name}</span>
-            <span className="font-mono text-[10px] uppercase tracking-wide opacity-70">{word}</span>
-          </Link>
-        );
-      })}
-    </div>
-  );
-}
-
-export default function Home() {
-  const [data, setData] = useState<Dashboard | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  const load = useCallback(async () => {
-    try {
-      const res = await fetch("/api/scans", { cache: "no-store" });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      setData(await res.json());
-      setError(null);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "failed to load");
-    }
-  }, []);
-
-  useEffect(() => {
-    load();
-  }, [load]);
-
-  const affected = (data?.providers ?? []).filter((p) => p.current.state !== "UP");
+export default async function Home() {
+  let data: Dashboard | null = null;
+  let error: string | null = null;
+  try {
+    data = await getDashboard();
+  } catch (e) {
+    error = e instanceof Error ? e.message : "failed to load";
+  }
+  const providers = data?.providers ?? [];
 
   return (
     <div className="mx-auto w-full max-w-[160rem] flex-1 px-5 py-6">
-      <TopIncident providers={data?.providers ?? []} />
-      <StatusBanner affected={affected} />
+      <TopIncident providers={providers} />
 
       {error && (
         <div className="mt-4 rounded-lg border border-rose-500/30 bg-rose-500/10 px-4 py-2 text-sm text-rose-300">
@@ -162,22 +124,20 @@ export default function Home() {
         </div>
       )}
 
-      {/* providers */}
-      {data && data.providers.length > 0 ? (
+      {providers.length > 0 ? (
         <section className="mt-6 grid gap-8 grid-cols-[repeat(auto-fill,minmax(min(20rem,100%),1fr))]">
-          {data.providers.map((p) => (
+          {providers.map((p) => (
             <ProviderCard key={p.key} p={p} />
           ))}
         </section>
-      ) : (
+      ) : !error ? (
         <div className="mt-10 rounded-lg border border-dashed border-white/10 py-16 text-center">
           <p className="text-slate-400">No scans recorded yet.</p>
           <p className="mt-1 text-sm text-slate-600">
-            Run <code className="font-mono text-slate-400">./cloudcheck.py</code> or press{" "}
-            <span className="text-slate-400">Run scan</span> to populate the dashboard.
+            Run <code className="font-mono text-slate-400">./cloudcheck.py</code> to populate the dashboard.
           </p>
         </div>
-      )}
+      ) : null}
     </div>
   );
 }
