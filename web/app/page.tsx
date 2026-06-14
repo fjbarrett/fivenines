@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import type { Dashboard, ProviderAgg, RunAgg, State } from "@/lib/aggregate";
+import type { Dashboard, Incident, ProviderAgg, RunAgg, State } from "@/lib/aggregate";
 import { ProviderLogo } from "@/lib/provider-logos";
 
 const TONE: Record<State, { dot: string; text: string; badge: string; bar: string }> = {
@@ -155,6 +155,46 @@ function RunBar({ run }: { run: RunAgg }) {
   );
 }
 
+function impactRank(impact: string): number {
+  const m: Record<string, number> = {
+    critical: 3, major: 3, high: 3, minor: 1, medium: 1, low: 0, maintenance: 0, none: 0,
+  };
+  return m[impact.toLowerCase()] ?? 1;
+}
+
+// Reads every provider's incident feed, picks the single most important *ongoing*
+// incident, and shows it as a banner linking to its detail page.
+function TopIncident({ providers }: { providers: ProviderAgg[] }) {
+  let best: { p: ProviderAgg; inc: Incident; score: number } | null = null;
+  for (const p of providers) {
+    for (const inc of p.detail?.incidents ?? []) {
+      if (inc.status === "resolved" || inc.resolved_at) continue; // ongoing only
+      const score = impactRank(inc.impact);
+      if (
+        !best ||
+        score > best.score ||
+        (score === best.score && (inc.started_at ?? "") > (best.inc.started_at ?? ""))
+      ) {
+        best = { p, inc, score };
+      }
+    }
+  }
+  if (!best) return null;
+  const t = best.score >= 3 ? TONE.DOWN : TONE.DEGRADED;
+  return (
+    <Link
+      href={`/provider/${best.p.key}/incident/${encodeURIComponent(best.inc.id)}`}
+      className={`mt-5 flex flex-wrap items-center gap-x-2.5 gap-y-1 rounded-xl px-4 py-3 transition hover:brightness-110 ${t.badge}`}
+    >
+      <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${t.dot}`} />
+      <span className="font-medium">{best.p.name}</span>
+      <span className="font-mono text-[10px] uppercase tracking-wide opacity-80">{best.inc.impact}</span>
+      <span className="min-w-0 flex-1 truncate text-sm opacity-90">{best.inc.name}</span>
+      <span className="font-mono text-xs opacity-70">ongoing</span>
+    </Link>
+  );
+}
+
 // Only shown when something is wrong — links straight to each affected provider.
 function StatusBanner({ affected }: { affected: ProviderAgg[] }) {
   if (affected.length === 0) return null;
@@ -213,15 +253,13 @@ export default function Home() {
         <div className="flex items-center gap-3">
           <div>
             <h1 className="font-mono text-lg font-semibold lowercase tracking-tight">
-              fivenines <span className="font-normal text-slate-600">/ cloud status</span>
+              fivenines
             </h1>
-            <p className="text-xs text-slate-500">
-              Independent multi-method up/down checks for the major cloud providers
-            </p>
           </div>
         </div>
       </header>
 
+      <TopIncident providers={data?.providers ?? []} />
       <StatusBanner affected={affected} />
 
       {error && (
