@@ -92,14 +92,15 @@ function Regions({ d }: { d: ProviderDetail }) {
                     ? "text-amber-300/70 ring-amber-400/20"
                     : "text-slate-400 ring-white/10";
               return (
-                <span
+                <Link
                   key={i}
+                  href={`/provider/${d.key}/region?r=${encodeURIComponent(it.name)}`}
                   title={it.chronic ? `${it.status} · re-routed in ~every recent scan (excluded)` : it.status}
-                  className={`truncate rounded px-2 py-1 text-xs ring-1 ${cls}`}
+                  className={`truncate rounded px-2 py-1 text-xs ring-1 transition hover:brightness-150 ${cls}`}
                 >
                   {r === 0 ? "● " : r === 1 ? "↻ " : ""}
                   {it.name}
-                </span>
+                </Link>
               );
             })}
           </div>

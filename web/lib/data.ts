@@ -91,3 +91,70 @@ export async function getDashboard(): Promise<Dashboard> {
   }
   return agg;
 }
+
+// --- per-region history --------------------------------------------------- //
+// Produced by the Proxmox uploader (one file per provider) so each region gets
+// its own timeline, mirroring the provider history.
+export interface RegionPoint {
+  t: string;
+  ok: boolean;
+}
+export interface RegionEntry {
+  chronic: boolean;
+  status: string;
+  points: RegionPoint[];
+}
+export interface RegionFile {
+  provider: string;
+  name: string;
+  kind: string;
+  generatedAt?: string;
+  regions: Record<string, RegionEntry>;
+}
+
+export async function readRegionFile(key: string): Promise<RegionFile | null> {
+  const base = process.env.CLOUDCHECK_REGIONS_BASE;
+  if (base) {
+    const text = await fetchText(`${base}/${encodeURIComponent(key)}.json`);
+    if (!text) return null;
+    try {
+      return JSON.parse(text) as RegionFile;
+    } catch {
+      return null;
+    }
+  }
+  return buildRegionFileFromFs(key); // local dev: reconstruct from results/runs
+}
+
+async function buildRegionFileFromFs(key: string): Promise<RegionFile | null> {
+  const dir = path.join(projectRoot(), "results", "runs");
+  let files: string[];
+  try {
+    files = (await fs.readdir(dir)).filter((f) => f.endsWith(".json")).sort();
+  } catch {
+    return null;
+  }
+  const out: RegionFile = { provider: key, name: key, kind: "", regions: {} };
+  let found = false;
+  for (const f of files.slice(-90)) {
+    let snap: { checked_at: string; results: ProviderDetail[] };
+    try {
+      snap = JSON.parse(await fs.readFile(path.join(dir, f), "utf8"));
+    } catch {
+      continue;
+    }
+    const r = snap.results?.find((x) => x.key === key);
+    const reg = r?.regions;
+    if (!r || !reg || reg.error || !reg.items?.length) continue;
+    found = true;
+    out.name = r.name;
+    out.kind = reg.kind;
+    for (const it of reg.items) {
+      const e = (out.regions[it.name] ??= { chronic: false, status: "", points: [] });
+      e.points.push({ t: snap.checked_at, ok: !!it.ok });
+      e.chronic = !!it.chronic;
+      e.status = it.status || "";
+    }
+  }
+  return found ? out : null;
+}
