@@ -172,8 +172,6 @@ function RunBar({ run }: { run: RunAgg }) {
 export default function Home() {
   const [data, setData] = useState<Dashboard | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [scanning, setScanning] = useState(false);
-  const [auto, setAuto] = useState(true);
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const load = useCallback(async () => {
@@ -187,32 +185,17 @@ export default function Home() {
     }
   }, []);
 
-  const runScan = useCallback(async () => {
-    setScanning(true);
-    setError(null);
-    try {
-      const res = await fetch("/api/scan", { method: "POST" });
-      const body = await res.json();
-      if (!res.ok) throw new Error(body.error || `HTTP ${res.status}`);
-      setData(body);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "scan failed");
-    } finally {
-      setScanning(false);
-    }
-  }, []);
-
   useEffect(() => {
     load();
   }, [load]);
 
   useEffect(() => {
     if (timer.current) clearInterval(timer.current);
-    if (auto) timer.current = setInterval(load, POLL_MS);
+    timer.current = setInterval(load, POLL_MS);
     return () => {
       if (timer.current) clearInterval(timer.current);
     };
-  }, [auto, load]);
+  }, [load]);
 
   const s = data?.summary;
   const allGood = s ? s.degraded === 0 && s.down === 0 && s.unknown === 0 : false;
@@ -234,27 +217,6 @@ export default function Home() {
                 : "loading…"}
             </p>
           </div>
-        </div>
-        <div className="flex items-center gap-3 text-sm">
-          <span className="text-slate-500">
-            last scan <span className="text-slate-300">{ago(data?.lastScan ?? null)}</span>
-          </span>
-          <label className="flex cursor-pointer select-none items-center gap-1.5 text-xs text-slate-400">
-            <input
-              type="checkbox"
-              checked={auto}
-              onChange={(e) => setAuto(e.target.checked)}
-              className="accent-emerald-400"
-            />
-            auto
-          </label>
-          <button
-            onClick={runScan}
-            disabled={scanning}
-            className="rounded-md bg-emerald-500/90 px-3 py-1.5 font-mono text-sm font-medium lowercase text-slate-950 transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {scanning ? "scanning…" : "run scan"}
-          </button>
         </div>
       </header>
 
