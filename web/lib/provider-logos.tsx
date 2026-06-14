@@ -1,3 +1,5 @@
+import type { CSSProperties } from "react";
+
 // Small, monochrome provider marks rendered inside a uniform rounded tile so
 // the dashboard stays cohesive on the dark UI. The 9 brand paths below are the
 // official marks from Simple Icons (CC0, 24×24 viewBox). The remaining 5
@@ -33,17 +35,44 @@ const MONOGRAM: Record<string, string> = {
   openai: "OAI",
 };
 
+// Each provider's signature color, used to tint its logo + tile. Chosen for
+// legibility on the near-black UI (some official blues/darks nudged lighter).
+const BRAND: Record<string, string> = {
+  aws: "#FF9900",
+  gcp: "#4285F4",
+  azure: "#38B0FF",
+  cloudflare: "#F6821F",
+  digitalocean: "#0080FF",
+  oracle: "#F80000",
+  linode: "#00B259",
+  vercel: "#FFFFFF",
+  ibm: "#4589FF",
+  alibaba: "#FF6A00",
+  tencent: "#1AA3FF",
+  ovh: "#2E8BE6",
+  meta: "#0866FF",
+  bytedance: "#4E9BFF",
+  anthropic: "#D97757",
+  openai: "#10A37F",
+};
+
 export function ProviderLogo({ keyId }: { keyId: string }) {
   const path = PATHS[keyId];
   const mono = MONOGRAM[keyId] ?? keyId.slice(0, 2).toUpperCase();
+  const brand = BRAND[keyId] ?? "#94a3b8"; // slate-400 fallback
   return (
-    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-white/[0.04] text-slate-300 ring-1 ring-white/10 transition group-hover:text-slate-100 group-hover:ring-white/20">
+    <span
+      className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-white/[0.04] ring-1 ring-white/10 transition group-hover:ring-white/20"
+      style={{ "--brand": brand } as CSSProperties}
+    >
       {path ? (
-        <svg viewBox="0 0 24 24" fill="currentColor" className="h-4 w-4" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="currentColor" className="brand-icon h-4 w-4" aria-hidden="true">
           <path d={path} />
         </svg>
       ) : (
-        <span className={`font-semibold leading-none ${mono.length > 2 ? "text-[9px]" : "text-[11px]"}`}>
+        <span
+          className={`brand-icon font-semibold leading-none ${mono.length > 2 ? "text-[9px]" : "text-[11px]"}`}
+        >
           {mono}
         </span>
       )}
