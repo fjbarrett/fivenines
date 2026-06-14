@@ -518,7 +518,7 @@ function History({ p }: { p: ProviderAgg }) {
 
 export async function generateMetadata({ params }: { params: Promise<{ key: string }> }) {
   const { key } = await params;
-  return { title: `${key} · 9s` };
+  return { title: key };
 }
 
 export default async function ProviderPage({ params }: { params: Promise<{ key: string }> }) {

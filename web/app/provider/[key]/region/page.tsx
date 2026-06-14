@@ -133,7 +133,7 @@ export async function generateMetadata({
 }) {
   const { key } = await params;
   const { r } = await searchParams;
-  return { title: `${r ?? "region"} · ${key} · 9s` };
+  return { title: `${r ?? "region"} · ${key}` };
 }
 
 export default async function RegionPage({

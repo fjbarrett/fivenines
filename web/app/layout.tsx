@@ -4,7 +4,7 @@ import Script from "next/script";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "9s",
+  title: { default: "FiveNines Availability", template: "%s · FiveNines Availability" },
   description: "Aggregated up/down status for the major cloud providers.",
   icons: { icon: "/favicon.svg" },
 };
@@ -26,9 +26,9 @@ export default function RootLayout({
         {children}
         <footer className="border-t border-white/[0.06] px-6 py-6 text-center font-mono text-xs text-slate-600 lg:px-12">
           <Link href="/about" className="text-slate-500 transition hover:text-slate-300">
-            about
+            About
           </Link>
-          <span className="mx-2 text-slate-700">·</span>© {year} Availability
+          <span className="mx-2 text-slate-700">·</span>© {year} FiveNines Availability
         </footer>
         {gaId && (
           <>

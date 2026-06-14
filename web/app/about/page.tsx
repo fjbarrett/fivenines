@@ -1,6 +1,6 @@
 import Link from "next/link";
 
-export const metadata = { title: "about · 9s" };
+export const metadata = { title: "About" };
 
 export default function AboutPage() {
   return (
@@ -16,9 +16,9 @@ export default function AboutPage() {
 
       <div className="mt-5 space-y-4 text-sm leading-relaxed text-slate-400">
         <p>
-          <span className="text-slate-200">Availability</span> is an independent dashboard that
-          tracks whether the major cloud platforms are up — and tells you, at a glance, when
-          they&rsquo;re not.
+          <span className="text-slate-200">FiveNines Availability</span>{" "}
+          is an independent dashboard that tracks whether the major cloud platforms are up — and
+          tells you, at a glance, when they&rsquo;re not.
         </p>
         <p>
           Every provider publishes its own status, but they live in a dozen different places and
@@ -33,7 +33,7 @@ export default function AboutPage() {
           edge nodes don&rsquo;t masquerade as an outage.
         </p>
         <p>
-          Availability is not affiliated with any of the providers it monitors, and what it shows
+          FiveNines Availability is not affiliated with any of the providers it monitors, and what it shows
           may differ from what you&rsquo;re seeing on your own connection.
         </p>
       </div>
