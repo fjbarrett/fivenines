@@ -62,16 +62,16 @@ export function ProviderLogo({ keyId }: { keyId: string }) {
   const brand = BRAND[keyId] ?? "#94a3b8"; // slate-400 fallback
   return (
     <span
-      className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-white/[0.04] ring-1 ring-white/10 transition group-hover:ring-white/20"
+      className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-white/[0.04] ring-1 ring-white/10 transition group-hover:ring-white/20"
       style={{ "--brand": brand } as CSSProperties}
     >
       {path ? (
-        <svg viewBox="0 0 24 24" fill="currentColor" className="brand-icon h-4 w-4" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="currentColor" className="brand-icon h-6 w-6" aria-hidden="true">
           <path d={path} />
         </svg>
       ) : (
         <span
-          className={`brand-icon font-semibold leading-none ${mono.length > 2 ? "text-[9px]" : "text-[11px]"}`}
+          className={`brand-icon font-semibold leading-none ${mono.length > 2 ? "text-xs" : "text-sm"}`}
         >
           {mono}
         </span>
