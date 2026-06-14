@@ -62,7 +62,6 @@ function History({ points }: { points: RegionPoint[] }) {
   }
   const current = segs[segs.length - 1];
   const windowMs = new Date(points[points.length - 1].t).getTime() - new Date(firstAt).getTime();
-  const recent = [...points].reverse().slice(0, 24);
 
   return (
     <div className="space-y-5">
@@ -101,49 +100,28 @@ function History({ points }: { points: RegionPoint[] }) {
         </div>
       </div>
 
-      <div className="grid gap-x-10 gap-y-6 lg:grid-cols-2">
-        <div>
-          <div className="mb-2 font-mono text-[10px] uppercase tracking-wider text-slate-600">
-            state changes
-          </div>
-          {segs.length <= 1 ? (
-            <p className="font-mono text-xs text-slate-600">
-              No transitions — {current.m} across the whole observed window.
-            </p>
-          ) : (
-            <ul className="space-y-1.5">
-              {[...segs].reverse().map((s, i) => (
-                <li key={i} className="flex items-baseline gap-3 font-mono text-xs">
-                  <span className={`w-16 shrink-0 font-semibold ${TONE[s.m].text}`}>{s.m}</span>
-                  <span className="w-16 shrink-0 text-slate-400">{fmtDur(s.durMs)}</span>
-                  <span className="shrink-0 text-slate-600">
-                    {clock(s.start)}
-                    {s.ongoing ? " → now" : ""}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          )}
+      <div>
+        <div className="mb-2 font-mono text-[10px] uppercase tracking-wider text-slate-600">
+          state changes
         </div>
-
-        <div>
-          <div className="mb-2 font-mono text-[10px] uppercase tracking-wider text-slate-600">
-            recent scans
-          </div>
-          <ul className="space-y-1 font-mono text-xs">
-            {recent.map((p, i) => (
-              <li
-                key={i}
-                className="flex items-baseline gap-3 border-b border-white/[0.04] pb-1 last:border-0"
-              >
-                <span className="w-28 shrink-0 text-slate-600">{clock(p.t)}</span>
-                <span className={`w-16 shrink-0 font-semibold ${TONE[mark(p.ok)].text}`}>
-                  {mark(p.ok)}
+        {segs.length <= 1 ? (
+          <p className="font-mono text-xs text-slate-600">
+            No transitions — {current.m} across the whole observed window.
+          </p>
+        ) : (
+          <ul className="space-y-1.5">
+            {[...segs].reverse().map((s, i) => (
+              <li key={i} className="flex items-baseline gap-3 font-mono text-xs">
+                <span className={`w-16 shrink-0 font-semibold ${TONE[s.m].text}`}>{s.m}</span>
+                <span className="w-16 shrink-0 text-slate-400">{fmtDur(s.durMs)}</span>
+                <span className="shrink-0 text-slate-600">
+                  {clock(s.start)}
+                  {s.ongoing ? " → now" : ""}
                 </span>
               </li>
             ))}
           </ul>
-        </div>
+        )}
       </div>
     </div>
   );

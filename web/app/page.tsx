@@ -227,7 +227,7 @@ export default function Home() {
       )}
 
       {/* summary */}
-      <section className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+      <section className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
         <StatTile label="Operational" value={s?.up ?? 0} tone="text-emerald-400" />
         <StatTile label="Degraded" value={s?.degraded ?? 0} tone="text-amber-400" />
         <StatTile label="Down" value={(s?.down ?? 0) + (s?.unknown ?? 0)} tone="text-rose-400" />
@@ -236,7 +236,6 @@ export default function Home() {
           value={data?.regions.total ? `${data.regions.up}/${data.regions.total}` : "—"}
           tone="text-sky-300"
         />
-        <StatTile label="Total scans" value={data?.totalRuns ?? 0} tone="text-slate-200" />
       </section>
 
       {/* providers */}
