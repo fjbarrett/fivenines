@@ -1,4 +1,6 @@
-# shores — cloud provider status suite
+# fivenines — cloud provider status suite
+
+**Live: https://fivenines.vercel.app**
 
 Checks whether the major cloud providers are up, using **several independent
 methods** per provider, records every scan to **append-only files** for bulk
@@ -6,7 +8,7 @@ analysis, and ships a **Next.js dashboard** that aggregates the history and lets
 you drill into per-region / per-method detail.
 
 ```
-shores/
+fivenines/
 ├── cloudcheck.py        # Python checker (recommended) — concurrent, region-aware, multi-vantage
 ├── check-status.sh      # Bash checker — zero-dependency, same output files
 ├── lib/                 # bash helpers (common.sh, providers.sh)
@@ -135,13 +137,14 @@ Point it at a different data location with `CLOUDCHECK_DATA` (path to a
 ## Providers
 
 AWS · GCP · Azure · Cloudflare · DigitalOcean · Oracle Cloud (OCI) · Akamai
-Linode · Vercel · IBM Cloud · Alibaba Cloud · Tencent Cloud · OVHcloud
+Linode · Vercel · IBM Cloud · Alibaba Cloud · Tencent Cloud · OVHcloud · Meta ·
+ByteDance · Anthropic · OpenAI
 
 ## Scheduling
 
 ```bash
 # every 5 minutes via cron, from the project root
-*/5 * * * * cd /path/to/shores && ./cloudcheck.py --json >/dev/null 2>&1
+*/30 * * * * cd /path/to/fivenines && ./cloudcheck.py --json >/dev/null 2>&1
 ```
 
 ## Requirements
