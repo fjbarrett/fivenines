@@ -248,17 +248,6 @@ export default function Home() {
 
   return (
     <div className="mx-auto w-full max-w-[160rem] flex-1 px-5 py-6">
-      {/* header */}
-      <header className="flex flex-wrap items-center justify-between gap-4 border-b border-white/[0.06] pb-5">
-        <div className="flex items-center gap-3">
-          <div>
-            <h1 className="font-mono text-lg font-semibold lowercase tracking-tight">
-              fivenines
-            </h1>
-          </div>
-        </div>
-      </header>
-
       <TopIncident providers={data?.providers ?? []} />
       <StatusBanner affected={affected} />
 
