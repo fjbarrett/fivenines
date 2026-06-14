@@ -559,6 +559,55 @@ def check_regions(prov, opener, timeout, chronic=None):
 # --------------------------------------------------------------------------- #
 # per-provider orchestration
 # --------------------------------------------------------------------------- #
+def fetch_incidents(prov, opener, timeout, limit=12):
+    """Recent incidents from the provider's own feed, with update timeline +
+    affected components. Statuspage exposes incidents.json; GCP's status feed is
+    already a list of incidents; reach/AWS providers have no incident feed."""
+    method = prov["method"]
+    try:
+        if method == "statuspage":
+            url = (prov.get("status") or "").replace("status.json", "incidents.json")
+            incs = json.loads(http_get(url, opener, timeout)).get("incidents", [])
+            out = []
+            for inc in incs[:limit]:
+                ups = [{"at": u.get("created_at"), "status": u.get("status", ""),
+                        "body": (u.get("body", "") or "")[:500]}
+                       for u in (inc.get("incident_updates") or [])[:8]]
+                out.append({
+                    "id": str(inc.get("id") or ""),
+                    "name": inc.get("name", ""),
+                    "impact": inc.get("impact", "none"),
+                    "status": inc.get("status", ""),
+                    "started_at": inc.get("started_at") or inc.get("created_at"),
+                    "resolved_at": inc.get("resolved_at"),
+                    "components": [c.get("name", "") for c in (inc.get("components") or [])],
+                    "updates": ups,
+                })
+            return out
+        if method == "gcp":
+            data = json.loads(http_get(prov["status"], opener, timeout))
+            incs = data if isinstance(data, list) else []
+            out = []
+            for inc in incs[:limit]:
+                ups = [{"at": u.get("when") or u.get("created"), "status": u.get("status", ""),
+                        "body": (u.get("text", "") or "")[:500]}
+                       for u in (inc.get("updates") or [])[:8]]
+                out.append({
+                    "id": str(inc.get("id") or inc.get("number") or ""),
+                    "name": inc.get("external_desc") or "Service incident",
+                    "impact": inc.get("severity", "minor"),
+                    "status": "resolved" if inc.get("end") else "ongoing",
+                    "started_at": inc.get("begin"),
+                    "resolved_at": inc.get("end"),
+                    "components": [ap.get("title", "") for ap in (inc.get("affected_products") or [])],
+                    "updates": ups,
+                })
+            return out
+    except Exception:
+        return []
+    return []
+
+
 def check_provider(prov, opener, timeout, want_globe, globe_limit, globe_locs, chronic=None):
     r = {"key": prov["key"], "name": prov["name"], "page": prov["page"]}
 
@@ -593,6 +642,7 @@ def check_provider(prov, opener, timeout, want_globe, globe_limit, globe_locs, c
 
     # 6. region / component granularity
     r["regions"] = check_regions(prov, opener, timeout, chronic)
+    r["incidents"] = fetch_incidents(prov, opener, timeout)
 
     # ---- verdict -----------------------------------------------------------
     globe = r["globe"]
