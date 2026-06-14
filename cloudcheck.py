@@ -159,6 +159,18 @@ PROVIDERS = [
                 "https://www.byteplus.com"],
          dns=["www.volcengine.com", "open.volcengineapi.com"],
          page="https://www.volcengine.com", regions=None),
+    dict(key="anthropic", name="Anthropic (Claude)", method="statuspage",
+         status="https://status.claude.com/api/v2/status.json",
+         reach=["https://api.anthropic.com", "https://www.anthropic.com"],
+         dns=["api.anthropic.com", "www.anthropic.com"],
+         page="https://status.claude.com",
+         regions={"kind": "components", "url": "https://status.claude.com/api/v2/components.json"}),
+    dict(key="openai", name="OpenAI", method="statuspage",
+         status="https://status.openai.com/api/v2/status.json",
+         reach=["https://api.openai.com", "https://openai.com"],
+         dns=["api.openai.com", "openai.com"],
+         page="https://status.openai.com",
+         regions={"kind": "components", "url": "https://status.openai.com/api/v2/components.json"}),
 ]
 
 # Public DNS-over-HTTPS resolvers. Querying several from one machine surfaces
