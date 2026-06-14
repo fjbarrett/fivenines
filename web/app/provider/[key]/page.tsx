@@ -38,6 +38,16 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   );
 }
 
+// Names like "US-East (Newark) Block Storage" share a "US-East (Newark)" prefix
+// — used to group a provider's many components under one region header.
+function regionGroupKey(name: string): string | null {
+  const m = name.match(/^(.+?\([^)]*\))/);
+  return m ? m[1].trim() : null;
+}
+function shortLabel(name: string, prefix: string): string {
+  return name.slice(prefix.length).trim() || "core";
+}
+
 function Regions({ d }: { d: ProviderDetail }) {
   const reg = d.regions;
   if (!reg || reg.error || !reg.total) {
@@ -52,8 +62,36 @@ function Regions({ d }: { d: ProviderDetail }) {
   const rank = (i: RegionItem) => (i.chronic ? 1 : i.ok ? 2 : 0);
   const realDown = reg.items.filter((i) => rank(i) === 0).length;
   const chronic = reg.items.filter((i) => i.chronic).length;
-  const sorted = [...reg.items].sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name));
   const listsAll = reg.kind !== "products";
+
+  // Surface problems directly; collapse the healthy majority (grouped by region).
+  const problems = reg.items
+    .filter((i) => rank(i) !== 2)
+    .sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name));
+  const healthy = reg.items.filter((i) => rank(i) === 2);
+
+  const groups = new Map<string, RegionItem[]>();
+  const loose: RegionItem[] = [];
+  for (const it of healthy) {
+    const k = regionGroupKey(it.name);
+    const arr = k ? groups.get(k) : null;
+    if (k && arr) arr.push(it);
+    else if (k) groups.set(k, [it]);
+    else loose.push(it);
+  }
+  // a one-item "group" isn't worth a header — fold it back into the loose list
+  for (const [k, items] of [...groups]) {
+    if (items.length < 2) {
+      loose.push(...items);
+      groups.delete(k);
+    }
+  }
+  const groupList = [...groups].sort((a, b) => a[0].localeCompare(b[0]));
+  loose.sort((a, b) => a.name.localeCompare(b.name));
+
+  const regionLink = (name: string) => `/provider/${d.key}/region?r=${encodeURIComponent(name)}`;
+  const chip = "rounded px-2 py-1 text-xs text-slate-400 ring-1 ring-white/10 transition hover:brightness-150";
+
   return (
     <div>
       <div className="mb-2 flex flex-wrap items-center justify-between gap-x-3 text-sm">
@@ -73,38 +111,82 @@ function Regions({ d }: { d: ProviderDetail }) {
       <div className="mb-4 h-1.5 w-full overflow-hidden rounded-full bg-white/10">
         <div className="h-full rounded-full bg-emerald-400" style={{ width: `${pct}%` }} />
       </div>
-      {sorted.length === 0 ? (
-        <p className="text-sm text-slate-500">All regions operational.</p>
+
+      {problems.length > 0 ? (
+        <div className="grid grid-cols-[repeat(auto-fill,minmax(10rem,1fr))] gap-1.5">
+          {problems.map((it, i) => {
+            const cls =
+              rank(it) === 0
+                ? "bg-rose-500/10 text-rose-300 ring-rose-500/30"
+                : "text-amber-300/70 ring-amber-400/20";
+            return (
+              <Link
+                key={i}
+                href={regionLink(it.name)}
+                title={it.chronic ? `${it.status} · re-routed in ~every recent scan (excluded)` : it.status}
+                className={`truncate rounded px-2 py-1 text-xs ring-1 transition hover:brightness-150 ${cls}`}
+              >
+                {rank(it) === 0 ? "● " : "↻ "}
+                {it.name}
+              </Link>
+            );
+          })}
+        </div>
       ) : (
-        <>
-          {!listsAll && (
-            <p className="mb-2 text-xs text-slate-600">
-              {reg.up} healthy products not listed individually; showing impacted only.
-            </p>
-          )}
-          <div className="grid max-h-[30rem] grid-cols-[repeat(auto-fill,minmax(10rem,1fr))] gap-1.5 overflow-y-auto pr-1">
-            {sorted.map((it, i) => {
-              const r = rank(it);
-              const cls =
-                r === 0
-                  ? "bg-rose-500/10 text-rose-300 ring-rose-500/30"
-                  : r === 1
-                    ? "text-amber-300/70 ring-amber-400/20"
-                    : "text-slate-400 ring-white/10";
-              return (
-                <Link
-                  key={i}
-                  href={`/provider/${d.key}/region?r=${encodeURIComponent(it.name)}`}
-                  title={it.chronic ? `${it.status} · re-routed in ~every recent scan (excluded)` : it.status}
-                  className={`truncate rounded px-2 py-1 text-xs ring-1 transition hover:brightness-150 ${cls}`}
-                >
-                  {r === 0 ? "● " : r === 1 ? "↻ " : ""}
-                  {it.name}
-                </Link>
-              );
-            })}
+        <p className="text-sm text-emerald-400/80">
+          All {reg.total} {reg.kind} operational.
+        </p>
+      )}
+
+      {!listsAll && (
+        <p className="mt-2 text-xs text-slate-600">
+          {reg.up} healthy products not listed individually; showing impacted only.
+        </p>
+      )}
+
+      {healthy.length > 0 && (
+        <details className="group/reg mt-3 rounded-lg border border-white/[0.06] bg-white/[0.02]">
+          <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2 text-xs text-slate-400 transition hover:text-slate-200 [&::-webkit-details-marker]:hidden">
+            <span className="inline-block text-slate-600 transition group-open/reg:rotate-90">▸</span>
+            {problems.length > 0
+              ? `Show ${healthy.length} healthy ${reg.kind}`
+              : `Show all ${healthy.length} ${reg.kind}`}
+          </summary>
+          <div className="max-h-[30rem] space-y-3 overflow-y-auto px-3 pb-3">
+            {groupList.map(([key, items]) => (
+              <div key={key}>
+                <div className="mb-1 flex items-baseline gap-2">
+                  <span className="text-xs font-medium text-slate-300">{key}</span>
+                  <span className="font-mono text-[10px] text-emerald-400/60">{items.length}</span>
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {items
+                    .slice()
+                    .sort((a, b) => a.name.localeCompare(b.name))
+                    .map((it, i) => (
+                      <Link key={i} href={regionLink(it.name)} title={it.status} className={chip}>
+                        {shortLabel(it.name, key)}
+                      </Link>
+                    ))}
+                </div>
+              </div>
+            ))}
+            {loose.length > 0 && (
+              <div>
+                {groupList.length > 0 && (
+                  <div className="mb-1 text-xs font-medium text-slate-300">Other</div>
+                )}
+                <div className="flex flex-wrap gap-1.5">
+                  {loose.map((it, i) => (
+                    <Link key={i} href={regionLink(it.name)} title={it.status} className={`truncate ${chip}`}>
+                      {it.name}
+                    </Link>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
-        </>
+        </details>
       )}
     </div>
   );
@@ -427,7 +509,7 @@ function History({ p }: { p: ProviderAgg }) {
 
 export async function generateMetadata({ params }: { params: Promise<{ key: string }> }) {
   const { key } = await params;
-  return { title: `${key} · fivenines` };
+  return { title: `${key} · 9s` };
 }
 
 export default async function ProviderPage({ params }: { params: Promise<{ key: string }> }) {
