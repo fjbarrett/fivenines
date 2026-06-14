@@ -81,7 +81,7 @@ function UptimeRing({ pct, stroke }: { pct: number; stroke: string }) {
   const c = 2 * Math.PI * r;
   const filled = (Math.max(0, Math.min(100, pct)) / 100) * c;
   return (
-    <svg viewBox="0 0 28 28" className="h-7 w-7 -rotate-90" aria-hidden="true">
+    <svg viewBox="0 0 28 28" className="h-3.5 w-3.5 -rotate-90" aria-hidden="true">
       <circle cx="14" cy="14" r={r} fill="none" strokeWidth="3" className="stroke-white/10" />
       <circle
         cx="14"
@@ -111,9 +111,6 @@ export function ProviderCard({ p }: { p: ProviderAgg }) {
       <h3 className="min-w-0 flex-1 truncate font-medium text-slate-100">{p.name}</h3>
       <div className="flex shrink-0 items-center gap-2" title={label} aria-label={label}>
         <UptimeRing pct={p.uptimePct} stroke={t.stroke} />
-        <span className="w-12 text-right font-mono text-xs tabular-nums text-slate-400">
-          {fmtUptime(p.uptimePct)}
-        </span>
       </div>
     </Link>
   );

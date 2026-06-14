@@ -15,7 +15,7 @@ export default async function Home() {
   const providers = (data?.providers ?? []).filter((p) => !isCdn(p.key) && !isHidden(p.key));
 
   return (
-    <div className="mx-auto w-full max-w-[160rem] flex-1 px-6 py-6 lg:px-12">
+    <div className="mx-auto w-full max-w-7xl flex-1 px-6 py-6 lg:px-12">
       <Nav active="platforms" />
       <TopIncident providers={providers} />
 
