@@ -66,7 +66,8 @@ TENCENT_REGIONS = ["ap-guangzhou", "ap-shanghai", "ap-beijing", "ap-chengdu",
 # method (top-level verdict source):
 #   statuspage  Atlassian Statuspage v2 (.status.indicator)
 #   gcp         status.cloud.google.com incidents.json
-#   aws         status.aws.amazon.com data.json
+#   aws         AWS Health feed (health.aws.amazon.com/public/currentevents)
+#   rss         RSS/Atom incident feed -> open <item>/<entry> count drives verdict
 #   reach       no machine-readable feed -> verdict from live probes only
 # regions (per-region/component granularity, optional):
 #   {"kind":"components","url":…}   Statuspage components.json (leaf components)
@@ -74,7 +75,7 @@ TENCENT_REGIONS = ["ap-guangzhou", "ap-shanghai", "ap-beijing", "ap-chengdu",
 #   {"kind":"probe","tmpl":…,"list":[…]}  probe one endpoint per region
 PROVIDERS = [
     dict(key="aws", name="Amazon Web Services", method="aws",
-         status="https://status.aws.amazon.com/data.json",
+         status="https://health.aws.amazon.com/public/currentevents",
          reach=["https://aws.amazon.com", "https://s3.amazonaws.com",
                 "https://ec2.us-east-1.amazonaws.com"],
          dns=["aws.amazon.com", "s3.amazonaws.com"],
@@ -87,8 +88,8 @@ PROVIDERS = [
          dns=["cloud.google.com", "storage.googleapis.com"],
          page="https://status.cloud.google.com",
          regions={"kind": "gcp"}),
-    dict(key="azure", name="Microsoft Azure", method="reach",
-         status=None,
+    dict(key="azure", name="Microsoft Azure", method="rss",
+         status="https://azure.status.microsoft/en-us/status/feed/",
          reach=["https://management.azure.com", "https://azure.microsoft.com",
                 "https://login.microsoftonline.com"],
          dns=["management.azure.com", "azure.microsoft.com"],
@@ -237,7 +238,11 @@ def http_probe(url, opener, timeout):
 def http_get(url, opener, timeout):
     req = urllib.request.Request(url, headers={"User-Agent": UA, "Accept": "application/json"})
     with opener.open(req, timeout=timeout) as r:
-        return r.read().decode("utf-8", "replace")
+        data = r.read()
+    # Some feeds (notably the AWS Health feed) are served as UTF-16 with a BOM.
+    if data[:2] in (b"\xff\xfe", b"\xfe\xff"):
+        return data.decode("utf-16", "replace")
+    return data.decode("utf-8", "replace")
 
 
 def resolve_system(host, timeout):
@@ -309,12 +314,52 @@ def parse_gcp(body):
         f"incidents.json: {len(ongoing)} open, severity {sev_name}"
 
 
+# AWS leaves resolved events in its public feed for weeks, so "feed not empty"
+# is not "currently broken" — only events updated within this window are active.
+AWS_ACTIVE_WINDOW = 36 * 3600
+
+
 def parse_aws(body):
+    """AWS Health feed (health.aws.amazon.com/public/currentevents). The modern
+    feed is a flat list of events; the legacy data.json nested them under
+    'current'. status codes: 0 normal · 1 informational · 2 degradation · 3 disruption."""
+    def _i(v):
+        try:
+            return int(v)
+        except (TypeError, ValueError):
+            return 0
+
     d = json.loads(body)
-    cur = d.get("current", [])
-    if not cur:
-        return "UP", "No open events", "data.json: 0 open events"
-    return "DEGRADED", f"{len(cur)} open service event(s)", f"data.json: {len(cur)} open events"
+    events = d if isinstance(d, list) else (d.get("current") or [])
+    if not events:
+        return "UP", "No open events", "health feed: 0 events"
+
+    now = time.time()
+    def last_update(e):
+        ts = [_i(e.get("date"))] + [_i(le.get("timestamp")) for le in (e.get("event_log") or [])]
+        return max(ts) if ts else 0
+
+    active = [e for e in events if now - last_update(e) <= AWS_ACTIVE_WINDOW]
+    disrupt = [e for e in active if str(e.get("status")) in ("2", "3")]
+    if not disrupt:
+        line = f"health feed: {len(active)} recent notice(s), 0 disruptions" if active \
+            else "health feed: no active events"
+        return "UP", "No active disruptions", line
+    worst = max(_i(e.get("status")) for e in disrupt)
+    state = "DOWN" if worst >= 3 else "DEGRADED"
+    svcs = ", ".join(sorted({(e.get("service_name") or e.get("service") or "?") for e in disrupt})[:3])
+    return state, f"{len(disrupt)} active issue(s): {svcs}", \
+        f"health feed: {len(disrupt)} disruption(s), max status {worst}"
+
+
+def parse_rss(body):
+    """RSS/Atom incident feed (e.g. Azure). An empty feed means all-clear; each
+    open <item>/<entry> is an active incident."""
+    low = body.lower()
+    n = low.count("<item") + low.count("<entry")
+    if n == 0:
+        return "UP", "No active incidents", "rss feed: 0 open items"
+    return "DEGRADED", f"{n} active incident(s)", f"rss feed: {n} open item(s)"
 
 
 def status_feed(prov, opener, timeout):
@@ -325,13 +370,11 @@ def status_feed(prov, opener, timeout):
     try:
         body = http_get(url, opener, timeout)
     except Exception as e:
-        note = "feed may be retired" if method == "aws" else str(e)[:40]
-        return "UNKNOWN", "status feed unreachable", f"{method} feed: no response ({note})"
+        return "UNKNOWN", "status feed unreachable", f"{method} feed: no response ({str(e)[:40]})"
     try:
-        return {"statuspage": parse_statuspage, "gcp": parse_gcp, "aws": parse_aws}[method](body)
+        return {"statuspage": parse_statuspage, "gcp": parse_gcp,
+                "aws": parse_aws, "rss": parse_rss}[method](body)
     except Exception as e:
-        if method == "aws":  # data.json is effectively retired; lean on live probes
-            return "UNKNOWN", "status feed unavailable", "data.json: no JSON returned (feed retired)"
         return "UNKNOWN", "could not parse feed", f"{method} feed: parse error ({str(e)[:40]})"
 
 
