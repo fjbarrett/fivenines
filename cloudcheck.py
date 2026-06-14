@@ -398,8 +398,61 @@ def globalping(host, opener, timeout, limit, locations):
 GCP_PRODUCTS = "https://status.cloud.google.com/products.json"
 
 
-def check_regions(prov, opener, timeout):
-    """Return {kind, up, total, items:[{name,status,ok}]} or None."""
+def load_chronic(out_dir, k=12, min_snaps=4):
+    """Regions that were down in *every* one of the last `k` run snapshots (and we
+    have at least `min_snaps`) are 'chronic' — persistently re-routed / under-
+    maintenance components that shouldn't read as a live outage. Returns
+    {provider_key: set(region_name)}. Built from prior snapshots, so it lags new
+    outages by a few scans (a freshly-down region is NOT yet chronic)."""
+    import glob
+    try:
+        files = sorted(glob.glob(os.path.join(out_dir, "runs", "*.json")))[-k:]
+    except Exception:
+        return {}
+    if len(files) < min_snaps:
+        return {}
+    down, nsnaps = {}, 0
+    for f in files:
+        try:
+            with open(f) as fh:
+                snap = json.load(fh)
+        except Exception:
+            continue
+        nsnaps += 1
+        for r in snap.get("results", []):
+            reg = r.get("regions") or {}
+            if reg.get("error"):
+                continue
+            d = down.setdefault(r.get("key"), {})
+            for it in reg.get("items", []):
+                if not it.get("ok"):
+                    nm = it.get("name", "")
+                    d[nm] = d.get(nm, 0) + 1
+    if nsnaps < min_snaps:
+        return {}
+    thr = max(2, (nsnaps + 1) // 2)   # down in at least ~half the recent scans
+    return {key: {nm for nm, c in d.items() if c >= thr}
+            for key, d in down.items() if any(c >= thr for c in d.values())}
+
+
+def _region_result(kind, items, total, chronic):
+    """Attach chronic flags and compute up/real_down. A region down in every
+    recent scan (name in `chronic`) is treated as up — it's a persistently
+    re-routed / under-maintenance component, not a live outage."""
+    chronic = chronic or set()
+    n_chronic = real_down = 0
+    for it in items:
+        it["chronic"] = (not it["ok"]) and (it["name"] in chronic)
+        if it["chronic"]:
+            n_chronic += 1
+        elif not it["ok"]:
+            real_down += 1
+    return {"kind": kind, "up": total - real_down, "total": total,
+            "real_down": real_down, "chronic": n_chronic, "items": items}
+
+
+def check_regions(prov, opener, timeout, chronic=None):
+    """Return {kind, up, total, real_down, chronic, items:[{name,status,ok,chronic}]} or None."""
     cfg = prov.get("regions")
     if not cfg:
         return None
@@ -416,8 +469,7 @@ def check_regions(prov, opener, timeout):
                 ok = st in ("operational", "under_maintenance")
                 items.append({"name": c.get("name", ""), "status": st, "ok": ok})
             items.sort(key=lambda x: x["name"])
-            return {"kind": "components", "up": sum(i["ok"] for i in items),
-                    "total": len(items), "items": items}
+            return _region_result("components", items, len(items), chronic)
 
         if kind == "gcp":
             pdata = json.loads(http_get(GCP_PRODUCTS, opener, timeout))
@@ -431,8 +483,7 @@ def check_regions(prov, opener, timeout):
                     affected[ap.get("id") or ap.get("title")] = ap.get("title")
             total = len(prods)
             items = [{"name": t or "?", "status": "incident", "ok": False} for t in affected.values()]
-            return {"kind": "products", "up": max(0, total - len(affected)),
-                    "total": total, "items": items}
+            return _region_result("products", items, total, chronic)
 
         if kind == "probe":
             pairs = [(r, cfg["tmpl"].format(r)) for r in cfg["list"]]
@@ -444,8 +495,7 @@ def check_regions(prov, opener, timeout):
                     ok, _code, _ = f.result()
                     items.append({"name": n, "status": "up" if ok else "down", "ok": ok})
             items.sort(key=lambda x: x["name"])
-            return {"kind": "probe", "up": sum(i["ok"] for i in items),
-                    "total": len(items), "items": items}
+            return _region_result("probe", items, len(items), chronic)
     except Exception as e:
         return {"kind": kind, "error": str(e)[:60], "up": 0, "total": 0, "items": []}
     return None
@@ -454,7 +504,7 @@ def check_regions(prov, opener, timeout):
 # --------------------------------------------------------------------------- #
 # per-provider orchestration
 # --------------------------------------------------------------------------- #
-def check_provider(prov, opener, timeout, want_globe, globe_limit, globe_locs):
+def check_provider(prov, opener, timeout, want_globe, globe_limit, globe_locs, chronic=None):
     r = {"key": prov["key"], "name": prov["name"], "page": prov["page"]}
 
     # 1. status feed
@@ -487,7 +537,7 @@ def check_provider(prov, opener, timeout, want_globe, globe_limit, globe_locs):
     r["globe"] = globalping(host, opener, timeout, globe_limit, globe_locs) if want_globe else None
 
     # 6. region / component granularity
-    r["regions"] = check_regions(prov, opener, timeout)
+    r["regions"] = check_regions(prov, opener, timeout, chronic)
 
     # ---- verdict -----------------------------------------------------------
     globe = r["globe"]
@@ -505,7 +555,13 @@ def check_provider(prov, opener, timeout, want_globe, globe_limit, globe_locs):
             final = "UP"   # feed says ok + reachable globally -> it's your IP, not them
         else:              final = "DEGRADED"
     elif s_state == "DEGRADED":
-        final = "DEGRADED"
+        # A feed "minor"/"maintenance" fully explained by chronic re-routing /
+        # maintenance (no live region outage) on a reachable edge is not a real
+        # degradation — don't flag the provider forever.
+        if http_ok and reg and not reg.get("error") and reg.get("chronic") and reg_down == 0:
+            final = "UP"
+        else:
+            final = "DEGRADED"
     elif s_state == "DOWN":
         final = "DOWN"
     else:  # UNKNOWN feed -> trust live probes (+globe if present)
@@ -536,8 +592,12 @@ def check_provider(prov, opener, timeout, want_globe, globe_limit, globe_locs):
     # Fold region health into the headline (it's the most actionable summary).
     if reg and not reg.get("error") and reg.get("total"):
         rtxt = f"{reg['up']}/{reg['total']} regions up"
+        if reg.get("chronic"):
+            rtxt += f" · {reg['chronic']} re-routed"
         if reg_down > 0:
             r["headline"] = f"{reg_down} region(s) down — {rtxt}"
+        elif reg.get("chronic") and final == "UP":
+            r["headline"] = rtxt   # chronic re-routes excluded; surface them
         elif prov["method"] == "reach" or s_state in ("UNKNOWN", "n/a"):
             r["headline"] = rtxt
 
@@ -735,9 +795,11 @@ def main():
         print(C.bold("cloud provider status") + "  " + C.dim(f"(timeout {args.timeout}s · {ts}{via}{globe})") + "\n")
 
     # providers run concurrently; ordering restored afterwards
+    chronic_map = load_chronic(args.out)
     with cf.ThreadPoolExecutor(max_workers=min(len(selected), 16)) as ex:
         futs = {ex.submit(check_provider, p, opener, args.timeout,
-                          bool(args.globe), args.globe or 5, locs): p["key"] for p in selected}
+                          bool(args.globe), args.globe or 5, locs,
+                          chronic_map.get(p["key"], set())): p["key"] for p in selected}
         done = {futs[f]: f.result() for f in cf.as_completed(futs)}
     results = [done[p["key"]] for p in selected]
 
