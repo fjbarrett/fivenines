@@ -216,20 +216,12 @@ export default function Home() {
 
   const s = data?.summary;
   const allGood = s ? s.degraded === 0 && s.down === 0 && s.unknown === 0 : false;
-  const overall: State = !s
-    ? "UNKNOWN"
-    : s.down > 0
-      ? "DOWN"
-      : s.degraded > 0 || s.unknown > 0
-        ? "DEGRADED"
-        : "UP";
 
   return (
     <div className="mx-auto w-full max-w-[160rem] flex-1 px-5 py-6">
       {/* header */}
       <header className="flex flex-wrap items-center justify-between gap-4 border-b border-white/[0.06] pb-5">
         <div className="flex items-center gap-3">
-          <span className={`live-dot h-2.5 w-2.5 rounded-full ${TONE[overall].dot}`} />
           <div>
             <h1 className="font-mono text-lg font-semibold lowercase tracking-tight">
               shores <span className="font-normal text-slate-600">/ cloud status</span>
