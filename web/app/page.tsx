@@ -61,10 +61,6 @@ function ProviderCard({ p }: { p: ProviderAgg }) {
           <span className="text-slate-500"> / {p.regionsTotal}</span> regions up
         </p>
       ) : null}
-
-      <div className="mt-3 flex justify-end text-xs text-slate-500">
-        <span className="transition group-hover:text-slate-300">details →</span>
-      </div>
     </Link>
   );
 }
