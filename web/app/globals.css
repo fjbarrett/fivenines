@@ -40,10 +40,19 @@ body {
 /* Only the logo glyph carries the brand --brand color; the tile/background stay
    neutral. The glyph brightens slightly on card (.group) hover. */
 .brand-icon {
-  color: var(--brand);
-  transition: filter 0.2s ease;
+  color: rgba(255,255,255,0.7);
+  transition: color 0.2s ease;
 }
 .group:hover .brand-icon {
-  filter: brightness(1.2);
+  color: rgba(255,255,255,0.95);
+}
+
+/* Provider cards: subtle brand tint that brightens on hover */
+.provider-card {
+  background-color: color-mix(in srgb, var(--brand) 6%, transparent);
+  transition: background-color 0.2s ease, border-color 0.2s ease;
+}
+.provider-card:hover {
+  background-color: color-mix(in srgb, var(--brand) 14%, transparent);
 }
 

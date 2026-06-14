@@ -1,3 +1,4 @@
+import type React from "react";
 import Link from "next/link";
 import type { Incident, ProviderAgg, State } from "@/lib/aggregate";
 import { BRAND, ProviderLogo } from "@/lib/provider-logos";
@@ -106,8 +107,8 @@ export function ProviderCard({ p }: { p: ProviderAgg }) {
   return (
     <Link
       href={`/provider/${p.key}`}
-      className="group flex w-full items-center gap-3 rounded-xl border border-white/[0.06] p-4 transition hover:border-white/20"
-      style={{ backgroundColor: `color-mix(in srgb, ${brand} 6%, transparent)` }}
+      className="provider-card group flex w-full items-center gap-3 rounded-xl border border-white/[0.06] p-4 hover:border-white/20"
+      style={{ "--brand": brand } as React.CSSProperties}
     >
       <ProviderLogo keyId={p.key} />
       <h3 className="min-w-0 flex-1 truncate font-medium text-slate-100">{p.name}</h3>
