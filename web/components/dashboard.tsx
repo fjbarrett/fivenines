@@ -1,7 +1,6 @@
-import type React from "react";
 import Link from "next/link";
 import type { Incident, ProviderAgg, State } from "@/lib/aggregate";
-import { BRAND, ProviderLogo } from "@/lib/provider-logos";
+import { ProviderLogo } from "@/lib/provider-logos";
 
 export const TONE: Record<State, { dot: string; text: string; badge: string; stroke: string }> = {
   UP: {
@@ -102,13 +101,11 @@ function UptimeRing({ pct, stroke }: { pct: number; stroke: string }) {
 // colored by current state) with the percentage beside it.
 export function ProviderCard({ p }: { p: ProviderAgg }) {
   const t = TONE[p.current.state];
-  const brand = BRAND[p.key] ?? "#94a3b8";
   const label = `${p.current.state} · ${fmtUptime(p.uptimePct)} uptime over last ${p.samples} checks`;
   return (
     <Link
       href={`/provider/${p.key}`}
-      className="provider-card group flex w-full items-center gap-3 rounded-xl border p-4"
-      style={{ "--brand": brand } as React.CSSProperties}
+      className="group flex w-full items-center gap-3 rounded-xl border border-white/[0.06] bg-white/[0.02] p-4 transition hover:border-white/20 hover:bg-white/[0.04]"
     >
       <ProviderLogo keyId={p.key} />
       <h3 className="min-w-0 flex-1 truncate font-medium text-slate-100">{p.name}</h3>
