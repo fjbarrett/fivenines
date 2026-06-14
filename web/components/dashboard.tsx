@@ -107,7 +107,7 @@ export function ProviderCard({ p }: { p: ProviderAgg }) {
   return (
     <Link
       href={`/provider/${p.key}`}
-      className="provider-card group flex w-full items-center gap-3 rounded-xl border border-white/[0.06] p-4 hover:border-white/20"
+      className="provider-card group flex w-full items-center gap-3 rounded-xl border p-4"
       style={{ "--brand": brand } as React.CSSProperties}
     >
       <ProviderLogo keyId={p.key} />
