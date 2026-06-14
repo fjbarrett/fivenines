@@ -32,6 +32,21 @@ export interface RegionItem {
   ok: boolean;
   chronic?: boolean; // down in ~every recent scan (persistently re-routed); not counted as a live outage
 }
+export interface IncidentUpdate {
+  at: string | null;
+  status: string;
+  body: string;
+}
+export interface Incident {
+  id: string;
+  name: string;
+  impact: string; // none | minor | major | critical | maintenance (or gcp high/medium/low)
+  status: string; // resolved | monitoring | identified | investigating | ongoing
+  started_at: string | null;
+  resolved_at: string | null;
+  components: string[];
+  updates: IncidentUpdate[];
+}
 export interface ProviderDetail {
   key: string;
   name: string;
@@ -54,6 +69,7 @@ export interface ProviderDetail {
     | { up: number; total: number; probes: { country: string; city: string; net: string; code: number | null; ok: boolean }[]; error?: string }
     | null;
   regions: { kind: string; up: number; total: number; real_down?: number; chronic?: number; items: RegionItem[]; error?: string } | null;
+  incidents?: Incident[];
 }
 
 export interface HistoryPoint {

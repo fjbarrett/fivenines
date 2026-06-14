@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getDashboard } from "@/lib/data";
-import type { ProviderAgg, ProviderDetail, RegionItem, State } from "@/lib/aggregate";
+import type { Incident, ProviderAgg, ProviderDetail, RegionItem, State } from "@/lib/aggregate";
 import { ProviderLogo } from "@/lib/provider-logos";
 
 export const dynamic = "force-dynamic";
@@ -110,6 +110,65 @@ function Regions({ d }: { d: ProviderDetail }) {
   );
 }
 
+function impactCls(impact: string): string {
+  const i = impact.toLowerCase();
+  if (["critical", "major", "high"].includes(i)) return "bg-rose-500/10 text-rose-300 ring-rose-500/30";
+  if (["minor", "medium"].includes(i)) return "bg-amber-400/10 text-amber-300 ring-amber-400/30";
+  if (i === "maintenance") return "bg-sky-400/10 text-sky-300 ring-sky-400/30";
+  return "bg-white/5 text-slate-300 ring-white/10";
+}
+function isOngoing(inc: Incident): boolean {
+  return inc.status !== "resolved" && !inc.resolved_at;
+}
+function incidentDuration(inc: Incident): string {
+  if (!inc.started_at) return "";
+  const start = new Date(inc.started_at).getTime();
+  const end = inc.resolved_at ? new Date(inc.resolved_at).getTime() : Date.now();
+  return fmtDur(end - start);
+}
+
+function Incidents({ providerKey, incidents }: { providerKey: string; incidents: Incident[] }) {
+  if (incidents.length === 0) {
+    return <p className="text-sm text-slate-500">No incidents in the provider feed.</p>;
+  }
+  return (
+    <ul className="space-y-2">
+      {incidents.map((inc) => (
+        <li key={inc.id} className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-3">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+            <span className={`rounded px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wide ring-1 ${impactCls(inc.impact)}`}>
+              {inc.impact}
+            </span>
+            <Link
+              href={`/provider/${providerKey}/incident/${encodeURIComponent(inc.id)}`}
+              className="min-w-0 flex-1 truncate font-medium text-slate-200 hover:underline"
+            >
+              {inc.name}
+            </Link>
+            {isOngoing(inc) ? (
+              <span className="font-mono text-xs text-amber-400">ongoing · {incidentDuration(inc)}</span>
+            ) : (
+              <span className="font-mono text-xs text-slate-500">{incidentDuration(inc)}</span>
+            )}
+          </div>
+          <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 font-mono text-[11px] text-slate-500">
+            <span>
+              {inc.started_at ? clock(inc.started_at) : "—"}
+              {inc.resolved_at ? ` → ${clock(inc.resolved_at)}` : " → now"}
+            </span>
+            {inc.components.length > 0 && (
+              <span className="truncate text-slate-600">
+                {inc.components.slice(0, 6).join(", ")}
+                {inc.components.length > 6 ? " …" : ""}
+              </span>
+            )}
+          </div>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 function Methods({ d }: { d: ProviderDetail }) {
   const eps = Object.entries(d.http.endpoints);
   const dohEntries = Object.entries(d.dns.doh);
@@ -118,7 +177,19 @@ function Methods({ d }: { d: ProviderDetail }) {
       {d.status.state !== "n/a" && (
         <div>
           <div className="mb-1 text-xs font-medium text-slate-400">Status feed</div>
-          <p className="font-mono text-xs text-slate-500">{d.status.line}</p>
+          {(() => {
+            const cur = (d.incidents ?? []).find(isOngoing) ?? (d.incidents ?? [])[0];
+            return cur ? (
+              <Link
+                href={`/provider/${d.key}/incident/${encodeURIComponent(cur.id)}`}
+                className="font-mono text-xs text-slate-400 underline decoration-dotted underline-offset-2 hover:text-slate-200"
+              >
+                {d.status.line}
+              </Link>
+            ) : (
+              <p className="font-mono text-xs text-slate-500">{d.status.line}</p>
+            );
+          })()}
         </div>
       )}
 
@@ -403,6 +474,9 @@ export default async function ProviderPage({ params }: { params: Promise<{ key: 
         <>
           <Section title="Regions / components">
             <Regions d={d} />
+          </Section>
+          <Section title="Incidents">
+            <Incidents providerKey={p.key} incidents={d.incidents ?? []} />
           </Section>
           <Section title="Methods">
             <Methods d={d} />
