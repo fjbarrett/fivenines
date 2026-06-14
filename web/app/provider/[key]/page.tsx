@@ -115,10 +115,12 @@ function Methods({ d }: { d: ProviderDetail }) {
   const dohEntries = Object.entries(d.dns.doh);
   return (
     <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-4">
-      <div>
-        <div className="mb-1 text-xs font-medium text-slate-400">Status feed</div>
-        <p className="font-mono text-xs text-slate-500">{d.status.line}</p>
-      </div>
+      {d.status.state !== "n/a" && (
+        <div>
+          <div className="mb-1 text-xs font-medium text-slate-400">Status feed</div>
+          <p className="font-mono text-xs text-slate-500">{d.status.line}</p>
+        </div>
+      )}
 
       <div>
         <div className="mb-1 text-xs font-medium text-slate-400">HTTP reachability</div>
@@ -337,7 +339,7 @@ function History({ p }: { p: ProviderAgg }) {
 
 export async function generateMetadata({ params }: { params: Promise<{ key: string }> }) {
   const { key } = await params;
-  return { title: `${key} · shores` };
+  return { title: `${key} · fivenines` };
 }
 
 export default async function ProviderPage({ params }: { params: Promise<{ key: string }> }) {

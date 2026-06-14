@@ -120,8 +120,7 @@ function ProviderCard({ p }: { p: ProviderAgg }) {
 
       <div className="mt-3 flex items-center justify-between text-xs">
         <span className="text-slate-500">
-          <span className={`font-mono font-semibold ${t.text}`}>{p.uptimePct.toFixed(1)}%</span> up ·{" "}
-          {p.samples} scan{p.samples === 1 ? "" : "s"}
+          <span className={`font-mono font-semibold ${t.text}`}>{p.uptimePct.toFixed(1)}%</span> up
         </span>
         <span className="text-slate-500">{ago(c.checked_at)}</span>
       </div>
@@ -169,6 +168,26 @@ function RunBar({ run }: { run: RunAgg }) {
   );
 }
 
+function StatusBanner({ s }: { s?: Dashboard["summary"] }) {
+  const down = s ? s.down + s.unknown : 0;
+  const degraded = s?.degraded ?? 0;
+  const state: State = !s ? "UNKNOWN" : down > 0 ? "DOWN" : degraded > 0 ? "DEGRADED" : "UP";
+  const t = TONE[state];
+  const msg = !s
+    ? "Loading…"
+    : down > 0
+      ? `${down} provider${down > 1 ? "s" : ""} down${degraded ? ` · ${degraded} degraded` : ""}`
+      : degraded > 0
+        ? `${degraded} provider${degraded > 1 ? "s" : ""} degraded`
+        : "All systems operational";
+  return (
+    <div className={`mt-5 flex items-center gap-3 rounded-xl px-4 py-3.5 ${t.badge}`}>
+      <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${t.dot}`} />
+      <span className="text-base font-medium">{msg}</span>
+    </div>
+  );
+}
+
 export default function Home() {
   const [data, setData] = useState<Dashboard | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -198,7 +217,6 @@ export default function Home() {
   }, [load]);
 
   const s = data?.summary;
-  const allGood = s ? s.degraded === 0 && s.down === 0 && s.unknown === 0 : false;
 
   return (
     <div className="mx-auto w-full max-w-[160rem] flex-1 px-5 py-6">
@@ -207,18 +225,16 @@ export default function Home() {
         <div className="flex items-center gap-3">
           <div>
             <h1 className="font-mono text-lg font-semibold lowercase tracking-tight">
-              shores <span className="font-normal text-slate-600">/ cloud status</span>
+              fivenines <span className="font-normal text-slate-600">/ cloud status</span>
             </h1>
             <p className="text-xs text-slate-500">
-              {data
-                ? allGood
-                  ? "All monitored providers operational"
-                  : `${s!.down + s!.unknown} down · ${s!.degraded} degraded`
-                : "loading…"}
+              Independent multi-method up/down checks for the major cloud providers
             </p>
           </div>
         </div>
       </header>
+
+      <StatusBanner s={s} />
 
       {error && (
         <div className="mt-4 rounded-lg border border-rose-500/30 bg-rose-500/10 px-4 py-2 text-sm text-rose-300">
@@ -227,15 +243,10 @@ export default function Home() {
       )}
 
       {/* summary */}
-      <section className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
+      <section className="mt-5 grid grid-cols-3 gap-3">
         <StatTile label="Operational" value={s?.up ?? 0} tone="text-emerald-400" />
         <StatTile label="Degraded" value={s?.degraded ?? 0} tone="text-amber-400" />
         <StatTile label="Down" value={(s?.down ?? 0) + (s?.unknown ?? 0)} tone="text-rose-400" />
-        <StatTile
-          label="Regions up"
-          value={data?.regions.total ? `${data.regions.up}/${data.regions.total}` : "—"}
-          tone="text-sky-300"
-        />
       </section>
 
       {/* providers */}

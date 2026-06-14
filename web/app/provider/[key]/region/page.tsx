@@ -136,7 +136,7 @@ export async function generateMetadata({
 }) {
   const { key } = await params;
   const { r } = await searchParams;
-  return { title: `${r ?? "region"} · ${key} · shores` };
+  return { title: `${r ?? "region"} · ${key} · fivenines` };
 }
 
 export default async function RegionPage({
@@ -155,6 +155,9 @@ export default async function RegionPage({
 
   const last = entry.points[entry.points.length - 1];
   const lastAt = last.t;
+  // GCP's "regions" are really products/services (listed only during an incident);
+  // statuspage providers expose components; the rest are probed geographic regions.
+  const noun = file.kind === "products" ? "service" : file.kind === "components" ? "component" : "region";
 
   return (
     <div className="mx-auto w-full max-w-[100rem] flex-1 px-5 py-6">
@@ -167,7 +170,7 @@ export default async function RegionPage({
 
       <header className="mt-4 flex flex-wrap items-start justify-between gap-4 border-b border-white/[0.06] pb-5">
         <div>
-          <p className="font-mono text-xs text-slate-500">{file.name} · region</p>
+          <p className="font-mono text-xs text-slate-500">{file.name} · {noun}</p>
           <h1 className="mt-0.5 text-2xl font-semibold tracking-tight text-slate-100">{r}</h1>
           {entry.status && <p className="mt-1 text-sm text-slate-400">{entry.status}</p>}
         </div>
@@ -187,7 +190,10 @@ export default async function RegionPage({
       </header>
 
       <div className="mt-4 mb-6 text-sm text-slate-500">
-        last checked {ago(lastAt)} · {file.kind}
+        last checked {ago(lastAt)} · {noun}
+        {file.kind === "products" && (
+          <span className="text-slate-600"> — a Google Cloud service, listed only while it has an open incident</span>
+        )}
       </div>
 
       <History points={entry.points} />
