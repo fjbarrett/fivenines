@@ -33,6 +33,15 @@ const MONOGRAM: Record<string, string> = {
   tencent: "T",
   anthropic: "A",
   openai: "OAI",
+  github: "GH",
+  netlify: "Nf",
+  render: "Re",
+  flyio: "Fly",
+  supabase: "Sb",
+  mongodb: "M",
+  snowflake: "Sf",
+  akamai: "Ak",
+  bunny: "B",
 };
 
 // Each provider's signature color, used to tint its logo + tile. Chosen for
@@ -54,6 +63,15 @@ const BRAND: Record<string, string> = {
   bytedance: "#4E9BFF",
   anthropic: "#D97757",
   openai: "#10A37F",
+  github: "#E6EDF3",
+  netlify: "#32E6E2",
+  render: "#46E3B7",
+  flyio: "#8B5CF6",
+  supabase: "#3ECF8E",
+  mongodb: "#47A248",
+  snowflake: "#29B5E8",
+  akamai: "#0096D6",
+  bunny: "#FF7A3D",
 };
 
 export function ProviderLogo({ keyId }: { keyId: string }) {
