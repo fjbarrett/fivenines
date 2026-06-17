@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { readRegionFile } from "@/lib/data";
 import type { RegionPoint } from "@/lib/data";
+import { providerLabel } from "@/lib/provider-logos";
 
 export const dynamic = "force-dynamic";
 
@@ -133,7 +134,7 @@ export async function generateMetadata({
 }) {
   const { key } = await params;
   const { r } = await searchParams;
-  return { title: `${r ?? "region"} · ${key}` };
+  return { title: `${r ?? "region"} - ${providerLabel(key)}` };
 }
 
 export default async function RegionPage({

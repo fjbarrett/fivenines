@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getDashboard } from "@/lib/data";
 import type { Incident, ProviderAgg, ProviderDetail, RegionItem, State } from "@/lib/aggregate";
-import { ProviderLogo } from "@/lib/provider-logos";
+import { ProviderLogo, providerLabel } from "@/lib/provider-logos";
 
 export const dynamic = "force-dynamic";
 
@@ -26,6 +26,22 @@ function ago(iso: string | null): string {
 
 const ok = (b: boolean) =>
   b ? <span className="text-emerald-400">✓</span> : <span className="text-rose-400">✗</span>;
+
+// ~6 days at the 30-min cadence. Below this the uptime % rests on too few scans
+// to justify sub-percent precision, so we round and flag it.
+const FULL_HISTORY = 288;
+function fmtPct(pct: number, samples: number): string {
+  if (pct >= 99.995) return "100%";
+  if (pct <= 0) return "0%";
+  // each scan in a small window moves the number by ~1/ N — don't imply more.
+  return samples >= FULL_HISTORY ? `${pct.toFixed(2)}%` : `${Math.round(pct)}%`;
+}
+
+// Display noun for a region set. Probe-kind entries are real regions probed at
+// the edge; "components"/"products" are already plural.
+function kindNoun(kind: string): string {
+  return kind === "probe" ? "regions" : kind;
+}
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -104,7 +120,7 @@ function Regions({ d }: { d: ProviderDetail }) {
               {chronic} re-routed (excluded)
             </span>
           )}
-          <span className="ml-2 text-xs text-slate-600">({reg.kind})</span>
+          <span className="ml-2 text-xs text-slate-600">({reg.kind === "probe" ? "probed" : reg.kind})</span>
         </span>
         <span className="text-xs text-slate-500">{pct.toFixed(1)}%</span>
       </div>
@@ -134,7 +150,7 @@ function Regions({ d }: { d: ProviderDetail }) {
         </div>
       ) : (
         <p className="text-sm text-emerald-400/80">
-          All {reg.total} {reg.kind} operational.
+          All {reg.total} {kindNoun(reg.kind)} operational.
         </p>
       )}
 
@@ -149,8 +165,8 @@ function Regions({ d }: { d: ProviderDetail }) {
           <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2 text-xs text-slate-400 transition hover:text-slate-200 [&::-webkit-details-marker]:hidden">
             <span className="inline-block text-slate-600 transition group-open/reg:rotate-90">▸</span>
             {problems.length > 0
-              ? `Show ${healthy.length} healthy ${reg.kind}`
-              : `Show all ${healthy.length} ${reg.kind}`}
+              ? `Show ${healthy.length} healthy ${kindNoun(reg.kind)}`
+              : `Show all ${healthy.length} ${kindNoun(reg.kind)}`}
           </summary>
           <div className="max-h-[30rem] space-y-3 overflow-y-auto px-3 pb-3">
             {groupList.map(([key, items]) => (
@@ -298,12 +314,18 @@ function Methods({ d }: { d: ProviderDetail }) {
       )}
 
       <div>
-        <div className="mb-1 text-xs font-medium text-slate-400">HTTP reachability</div>
+        <div
+          className="mb-1 text-xs font-medium text-slate-400"
+          title="Any HTTP response — including 401/403/404 — counts as reachable: it means the edge answered. This measures edge reachability, not full service health."
+        >
+          HTTP reachability
+        </div>
         <ul className="space-y-0.5">
           {eps.map(([url, e]) => (
             <li key={url} className="flex items-center gap-2 font-mono text-xs">
               {ok(e.ok)}
               <span className="text-slate-500">{e.code || "—"}</span>
+              {e.ms != null && <span className="shrink-0 text-slate-600">{e.ms}ms</span>}
               <span className="truncate text-slate-400">{url}</span>
             </li>
           ))}
@@ -315,21 +337,45 @@ function Methods({ d }: { d: ProviderDetail }) {
         <p className="font-mono text-xs text-slate-500">
           {ok(d.dns.ok)} {d.dns.v4.length} A / {d.dns.v6.length} AAAA
         </p>
-        {d.dns.v4.length > 0 && (
-          <p className="mt-0.5 font-mono text-[11px] text-slate-600">{d.dns.v4.join(", ")}</p>
+        {/* Resolver disagreement is a real availability signal (split DNS / bad
+            propagation) — surface it; routine diagnostics stay collapsed. */}
+        {d.dns.perspectives > 1 && (
+          <p
+            className="mt-0.5 font-mono text-[11px] text-amber-400/80"
+            title="DoH resolvers returned different answer sets — anycast/geo-routing is normal, but a split can also mean a propagation problem."
+          >
+            ⚠ resolvers disagree ({d.dns.perspectives} views)
+          </p>
         )}
-        {dohEntries.length > 0 && (
-          <ul className="mt-1 space-y-0.5">
-            {dohEntries.map(([res, ips]) => (
-              <li key={res} className="font-mono text-[11px] text-slate-600">
-                <span className="text-slate-400">{res}:</span> {ips.length ? ips.join(", ") : "—"}
-              </li>
-            ))}
-          </ul>
-        )}
-        <p className="mt-1 font-mono text-xs text-slate-500">
-          {ok(d.ipv6.ok)} IPv6 TCP/443 to {d.ipv6.host}
-        </p>
+        <details className="group/dns mt-1">
+          <summary className="flex cursor-pointer list-none items-center gap-1 font-mono text-[11px] text-slate-600 transition hover:text-slate-400 [&::-webkit-details-marker]:hidden">
+            <span className="inline-block transition group-open/dns:rotate-90">▸</span> diagnostics
+          </summary>
+          <div className="mt-1 space-y-0.5">
+            {d.dns.v4.length > 0 && (
+              <p className="font-mono text-[11px] text-slate-600">{d.dns.v4.join(", ")}</p>
+            )}
+            {dohEntries.length > 0 && (
+              <ul className="space-y-0.5">
+                {dohEntries.map(([res, ips]) => (
+                  <li key={res} className="font-mono text-[11px] text-slate-600">
+                    <span className="text-slate-400">{res}:</span> {ips.length ? ips.join(", ") : "—"}
+                  </li>
+                ))}
+              </ul>
+            )}
+            {/* IPv6 doesn't feed the verdict (many providers are v4-only), so
+                it's a neutral diagnostic here, not a red failure. */}
+            <p className="font-mono text-[11px] text-slate-600">
+              IPv6 TCP/443:{" "}
+              {d.ipv6.ok ? (
+                <span className="text-emerald-400/80">reachable</span>
+              ) : (
+                <span className="text-slate-500">no AAAA route</span>
+              )}
+            </p>
+          </div>
+        </details>
       </div>
 
       <div>
@@ -342,12 +388,15 @@ function Methods({ d }: { d: ProviderDetail }) {
           <div>
             <p className="mb-1 font-mono text-xs text-slate-500">
               {d.globe.up}/{d.globe.total} probes reachable
+              {d.globe.p50_ms != null && (
+                <span className="text-slate-600"> · p50 {d.globe.p50_ms}ms</span>
+              )}
             </p>
             <div className="flex flex-wrap gap-1">
               {d.globe.probes.map((p, i) => (
                 <span
                   key={i}
-                  title={`${p.city} · ${p.net} · ${p.code ?? "—"}`}
+                  title={`${p.city} · ${p.net} · ${p.code ?? "—"}${p.ms != null ? ` · ${p.ms}ms` : ""}`}
                   className={`rounded px-1.5 py-0.5 text-[10px] font-mono ring-1 ${
                     p.ok ? "text-emerald-300 ring-emerald-400/30" : "text-rose-300 ring-rose-500/40"
                   }`}
@@ -451,7 +500,7 @@ function History({ p }: { p: ProviderAgg }) {
         <span>
           uptime{" "}
           <span className={`font-semibold ${TONE[p.current.state].text}`}>
-            {p.uptimePct.toFixed(1)}%
+            {fmtPct(p.uptimePct, p.samples)}
           </span>
         </span>
         <span>
@@ -520,7 +569,7 @@ function History({ p }: { p: ProviderAgg }) {
 
 export async function generateMetadata({ params }: { params: Promise<{ key: string }> }) {
   const { key } = await params;
-  return { title: key };
+  return { title: providerLabel(key) };
 }
 
 export default async function ProviderPage({ params }: { params: Promise<{ key: string }> }) {
@@ -531,6 +580,13 @@ export default async function ProviderPage({ params }: { params: Promise<{ key: 
 
   const t = TONE[p.current.state];
   const d = p.detail;
+
+  // The window the uptime % is computed over (last-90 scans, matching the graph).
+  const first = p.history[0]?.checked_at;
+  const last = p.history[p.history.length - 1]?.checked_at;
+  const observedMs = first && last ? new Date(last).getTime() - new Date(first).getTime() : 0;
+  const limited = p.samples < FULL_HISTORY;
+  const noFeed = d?.status.state === "n/a";
 
   return (
     <div className="mx-auto w-full max-w-7xl flex-1 px-6 py-6 lg:px-12">
@@ -559,9 +615,22 @@ export default async function ProviderPage({ params }: { params: Promise<{ key: 
 
       <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-1 text-sm text-slate-500">
         <span>
-          uptime <span className={`font-mono font-semibold ${t.text}`}>{p.uptimePct.toFixed(1)}%</span>
+          uptime <span className={`font-mono font-semibold ${t.text}`}>{fmtPct(p.uptimePct, p.samples)}</span>
+          <span className="text-slate-600"> over last {p.samples} scans{observedMs > 0 ? ` (${fmtDur(observedMs)})` : ""}</span>
         </span>
-        <span>monitoring since {clock(p.history[0]?.checked_at ?? p.current.checked_at)}</span>
+        {limited && (
+          <span
+            className="rounded bg-amber-400/10 px-1.5 py-0.5 font-mono text-[10px] text-amber-400/80 ring-1 ring-amber-400/20"
+            title="Uptime is computed over a short window of scans (30-min cadence), so a single scan moves it by ~1%. Treat the figure as approximate until more history accrues."
+          >
+            limited history
+          </span>
+        )}
+        {d?.http?.ms != null && (
+          <span>
+            median RTT <span className="font-mono text-slate-300">{d.http.ms}ms</span>
+          </span>
+        )}
         <span>last checked {ago(p.current.checked_at)}</span>
         {p.current.vantage && p.current.vantage !== "local" && (
           <span className="text-sky-400">via {p.current.vantage}</span>
@@ -572,6 +641,15 @@ export default async function ProviderPage({ params }: { params: Promise<{ key: 
           </a>
         )}
       </div>
+
+      {noFeed && (
+        <p className="mt-3 max-w-3xl text-xs text-slate-600">
+          {p.name} publishes no machine-readable status feed, so availability here is inferred from
+          synthetic external reachability probes — any HTTP response (including 401/403/404) counts as
+          reachable. This reflects whether the edge answers our probes, not necessarily full service
+          health, and won&apos;t show incidents the provider hasn&apos;t surfaced publicly.
+        </p>
+      )}
 
       {!d ? (
         <p className="mt-8 text-sm text-slate-500">

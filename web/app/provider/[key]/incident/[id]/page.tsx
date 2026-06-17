@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getDashboard } from "@/lib/data";
+import { providerLabel } from "@/lib/provider-logos";
 
 export const dynamic = "force-dynamic";
 
@@ -33,7 +34,7 @@ function clock(iso: string | null): string {
 
 export async function generateMetadata({ params }: { params: Promise<{ key: string; id: string }> }) {
   const { key } = await params;
-  return { title: `incident · ${key}` };
+  return { title: `Incident - ${providerLabel(key)}` };
 }
 
 export default async function IncidentPage({

@@ -23,6 +23,8 @@ export interface Row {
   regions_total: number | string | null;
   vantage: string;
   note: string;
+  latency_ms?: number | string | null; // representative edge RTT (newer scans)
+  reason?: string; // per-scan evidence behind the verdict (newer scans)
 }
 
 // Full nested record from results/runs/<id>.json (written by cloudcheck.py).
@@ -30,6 +32,7 @@ export interface RegionItem {
   name: string;
   status: string;
   ok: boolean;
+  ms?: number | null; // probe RTT (probe-kind regions)
   chronic?: boolean; // down in ~every recent scan (persistently re-routed); not counted as a live outage
 }
 export interface IncidentUpdate {
@@ -55,7 +58,7 @@ export interface ProviderDetail {
   headline?: string;
   note?: string;
   status: { state: string; detail: string; line: string };
-  http: { ok: boolean; endpoints: Record<string, { ok: boolean; code: number; note: string }> };
+  http: { ok: boolean; ms?: number | null; endpoints: Record<string, { ok: boolean; code: number; note: string; ms?: number | null }> };
   dns: {
     ok: boolean;
     host: string;
@@ -66,7 +69,7 @@ export interface ProviderDetail {
   };
   ipv6: { ok: boolean; host: string };
   globe:
-    | { up: number; total: number; probes: { country: string; city: string; net: string; code: number | null; ok: boolean }[]; error?: string }
+    | { up: number; total: number; p50_ms?: number | null; probes: { country: string; city: string; net: string; code: number | null; ok: boolean; ms?: number | null }[]; error?: string }
     | null;
   regions: { kind: string; up: number; total: number; real_down?: number; chronic?: number; items: RegionItem[]; error?: string } | null;
   incidents?: Incident[];
@@ -143,24 +146,30 @@ export function aggregate(rows: Row[]): Dashboard {
 
   const providers: ProviderAgg[] = [];
   for (const [key, list] of byProvider) {
+    // Uptime, counts, and the timeline all reflect the same rolling window
+    // (the displayed last-90 scans) so the headline % can't drift from the
+    // graph or imply more history than we actually show.
+    const window = list.slice(-90);
     const counts: Record<State, number> = { UP: 0, DEGRADED: 0, DOWN: 0, UNKNOWN: 0 };
-    for (const r of list) counts[r.state]++;
+    for (const r of window) counts[r.state]++;
     const current = list[list.length - 1];
     providers.push({
       key,
       name: current.name || key,
       current,
       counts,
-      samples: list.length,
-      uptimePct: list.length ? (counts.UP / list.length) * 100 : 0,
+      samples: window.length,
+      uptimePct: window.length ? (counts.UP / window.length) * 100 : 0,
       regionsUp: toNum(current.regions_up),
       regionsTotal: toNum(current.regions_total),
-      history: list.slice(-90).map((r) => ({
+      history: window.map((r) => ({
         checked_at: r.checked_at,
         state: r.state,
         regionsUp: toNum(r.regions_up),
         regionsTotal: toNum(r.regions_total),
-        headline: r.status_detail || "",
+        // prefer the per-scan evidence ("13/16 regions down") over the feed's
+        // generic detail ("no machine-readable feed") for reach providers
+        headline: r.reason || r.status_detail || "",
         note: r.note || "",
       })),
     });

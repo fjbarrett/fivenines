@@ -73,6 +73,43 @@ const BRAND: Record<string, string> = {
   bunny: "#FF7A3D",
 };
 
+// Short brand labels with correct capitalization (acronyms, camelCase, dotted
+// names) for page titles and headings — the scan data carries full legal names
+// ("Amazon Web Services"), but titles read better as the brand ("AWS").
+const LABELS: Record<string, string> = {
+  aws: "AWS",
+  gcp: "GCP",
+  azure: "Azure",
+  cloudflare: "Cloudflare",
+  digitalocean: "DigitalOcean",
+  oracle: "Oracle",
+  linode: "Linode",
+  vercel: "Vercel",
+  ibm: "IBM",
+  alibaba: "Alibaba Cloud",
+  tencent: "Tencent Cloud",
+  ovh: "OVHcloud",
+  meta: "Meta",
+  bytedance: "ByteDance",
+  anthropic: "Anthropic",
+  openai: "OpenAI",
+  github: "GitHub",
+  netlify: "Netlify",
+  render: "Render",
+  flyio: "Fly.io",
+  supabase: "Supabase",
+  mongodb: "MongoDB",
+  snowflake: "Snowflake",
+  akamai: "Akamai",
+  bunny: "Bunny.net",
+};
+
+// Brand-correct display label for a provider key; falls back to capitalizing
+// the key so an unmapped provider still renders sensibly.
+export function providerLabel(key: string): string {
+  return LABELS[key] ?? (key ? key[0].toUpperCase() + key.slice(1) : key);
+}
+
 export function ProviderLogo({ keyId }: { keyId: string }) {
   const path = PATHS[keyId];
   const mono = MONOGRAM[keyId] ?? keyId.slice(0, 2).toUpperCase();

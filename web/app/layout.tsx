@@ -4,7 +4,7 @@ import Script from "next/script";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: { default: "FiveNines Availability", template: "%s · FiveNines Availability" },
+  title: { default: "FiveNines Availability", template: "%s - FiveNines Availability" },
   description: "Aggregated up/down status for the major cloud providers.",
   icons: { icon: "/favicon.svg" },
 };
