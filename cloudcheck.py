@@ -285,28 +285,31 @@ def build_opener(proxy):
 
 
 def http_probe(url, opener, timeout):
-    """Return (ok, code, note). Any HTTP response — even 401/403/404 — means the
-    edge answered, which is what reachability is. Only a transport failure is
-    'unreachable'."""
+    """Return (ok, code, note, ms). Any HTTP response — even 401/403/404 — means
+    the edge answered, which is what reachability is. Only a transport failure is
+    'unreachable'. `ms` is wall-clock to the response (None when unreachable) so
+    availability can track latency/degradation, not just binary up/down."""
     req = urllib.request.Request(url, method="HEAD", headers={"User-Agent": UA})
+    t0 = time.monotonic()
+    el = lambda: round((time.monotonic() - t0) * 1000)
     try:
         with opener.open(req, timeout=timeout) as r:
-            return True, r.status, ""
+            return True, r.status, "", el()
     except urllib.error.HTTPError as e:
-        return True, e.code, ""                       # responded -> reachable
+        return True, e.code, "", el()                 # responded -> reachable
     except urllib.error.URLError as e:
         reason = getattr(e, "reason", e)
         # some hosts reject HEAD; retry GET once before declaring it dead
         try:
             req2 = urllib.request.Request(url, method="GET", headers={"User-Agent": UA})
             with opener.open(req2, timeout=timeout) as r:
-                return True, r.status, ""
+                return True, r.status, "", el()
         except urllib.error.HTTPError as e2:
-            return True, e2.code, ""
+            return True, e2.code, "", el()
         except Exception:
-            return False, 0, str(reason)
+            return False, 0, str(reason), None
     except Exception as e:
-        return False, 0, str(e)
+        return False, 0, str(e), None
 
 
 def http_get(url, opener, timeout):
@@ -502,11 +505,14 @@ def globalping(host, opener, timeout, limit, locations):
         p = item.get("probe", {})
         rr = item.get("result", {})
         code = rr.get("statusCode")
+        ms = (rr.get("timings") or {}).get("total")
         ok = rr.get("status") == "finished" and code is not None and code < 500
         probes.append({"country": p.get("country", "??"), "city": p.get("city", ""),
-                       "net": p.get("network", ""), "code": code, "ok": ok})
+                       "net": p.get("network", ""), "code": code, "ok": ok, "ms": ms})
     up = sum(1 for p in probes if p["ok"])
-    return {"up": up, "total": len(probes), "probes": probes}
+    lat = sorted(p["ms"] for p in probes if p["ok"] and p["ms"] is not None)
+    p50 = lat[len(lat) // 2] if lat else None
+    return {"up": up, "total": len(probes), "p50_ms": p50, "probes": probes}
 
 
 # --------------------------------------------------------------------------- #
@@ -609,8 +615,8 @@ def check_regions(prov, opener, timeout, chronic=None):
                 futs = {ex.submit(http_probe, u, opener, timeout): n for n, u in pairs}
                 for f in cf.as_completed(futs):
                     n = futs[f]
-                    ok, _code, _ = f.result()
-                    items.append({"name": n, "status": "up" if ok else "down", "ok": ok})
+                    ok, _code, _, ms = f.result()
+                    items.append({"name": n, "status": "up" if ok else "down", "ok": ok, "ms": ms})
             items.sort(key=lambda x: x["name"])
             return _region_result("probe", items, len(items), chronic)
     except Exception as e:
@@ -680,11 +686,14 @@ def check_provider(prov, opener, timeout, want_globe, globe_limit, globe_locs, c
     # 2. http reachability across several endpoints (best-effort, concurrent)
     http_results = {}
     with cf.ThreadPoolExecutor(max_workers=len(prov["reach"])) as ex:
-        for url, (ok, code, note) in zip(prov["reach"],
-                                         ex.map(lambda u: http_probe(u, opener, timeout), prov["reach"])):
-            http_results[url] = {"ok": ok, "code": code, "note": note}
+        for url, (ok, code, note, ms) in zip(prov["reach"],
+                                             ex.map(lambda u: http_probe(u, opener, timeout), prov["reach"])):
+            http_results[url] = {"ok": ok, "code": code, "note": note, "ms": ms}
     http_ok = any(v["ok"] for v in http_results.values())
-    r["http"] = {"ok": http_ok, "endpoints": http_results}
+    # representative edge latency = median RTT across the reachable endpoints
+    lat = sorted(v["ms"] for v in http_results.values() if v["ok"] and v["ms"] is not None)
+    http_ms = lat[len(lat) // 2] if lat else None
+    r["http"] = {"ok": http_ok, "ms": http_ms, "endpoints": http_results}
 
     # 3. dns: system resolver (v4+v6) + DoH cross-check
     host = prov["dns"][0]
@@ -768,6 +777,27 @@ def check_provider(prov, opener, timeout, want_globe, globe_limit, globe_locs, c
         elif prov["method"] == "reach" or s_state in ("UNKNOWN", "n/a"):
             r["headline"] = rtxt
 
+    # Evidence behind the verdict, recorded per scan so a non-UP point in the
+    # history is auditable instead of echoing "no machine-readable feed". For a
+    # reach/probe provider this is the only explanation of a DEGRADED/DOWN.
+    if final == "UP":
+        r["reason"] = r.get("headline") or s_detail
+    else:
+        bits = []
+        if reg and not reg.get("error") and reg.get("total") and reg_down > 0:
+            bits.append(f"{reg_down}/{reg['total']} regions down")
+        if not http_ok:
+            bits.append(f"0/{n_ep} endpoints reachable" if n_ep else "no endpoints probed")
+        elif n_ok < n_ep:
+            bits.append(f"only {n_ok}/{n_ep} endpoints reachable")
+        if globe_ratio is not None and globe_ratio < 1:
+            bits.append(f"global probes {globe['up']}/{globe['total']}")
+        if not r["dns"]["ok"]:
+            bits.append("DNS resolution failed")
+        if prov["method"] != "reach" and s_state in ("DEGRADED", "DOWN") and s_detail:
+            bits.append(s_detail)
+        r["reason"] = "; ".join(bits) or r.get("headline") or s_detail
+
     r["state"] = final
     return r
 
@@ -808,6 +838,11 @@ def flat_row(r, run_id, vantage):
         "regions_total": reg["total"] if has_reg else "",
         "vantage": vantage,
         "note": r.get("note", ""),
+        # JSONL-only enrichments (CSV stays identical to the bash suite via
+        # DictWriter extrasaction="ignore"): representative edge RTT for latency
+        # trending, and the per-scan evidence behind the verdict.
+        "latency_ms": r["http"]["ms"] if r["http"].get("ms") is not None else "",
+        "reason": r.get("reason", ""),
     }
 
 
@@ -825,7 +860,7 @@ def store_results(results, outdir, run_id, vantage):
     csv_path = os.path.join(outdir, "history.csv")
     new = not os.path.exists(csv_path) or os.path.getsize(csv_path) == 0
     with open(csv_path, "a", encoding="utf-8", newline="") as f:
-        w = csv.DictWriter(f, fieldnames=CSV_COLS)
+        w = csv.DictWriter(f, fieldnames=CSV_COLS, extrasaction="ignore")
         if new:
             w.writeheader()
         w.writerows(rows)
