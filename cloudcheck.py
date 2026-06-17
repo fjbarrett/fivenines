@@ -33,6 +33,7 @@ import ssl
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
 
@@ -285,27 +286,30 @@ def build_opener(proxy):
 
 
 def http_probe(url, opener, timeout):
-    """Return (ok, code, note, ms). Any HTTP response — even 401/403/404 — means
-    the edge answered, which is what reachability is. Only a transport failure is
-    'unreachable'. `ms` is wall-clock to the response (None when unreachable) so
+    """Return (ok, code, note, ms). A response under 500 — even 401/403/404 —
+    means the edge answered and the service isn't erroring, which is what
+    reachability is. A 5xx (edge up but service failing) or a transport failure
+    is NOT reachable; this matches Globalping's code<500 rule so local and global
+    views agree. `ms` is wall-clock to the response (None when unreachable) so
     availability can track latency/degradation, not just binary up/down."""
     req = urllib.request.Request(url, method="HEAD", headers={"User-Agent": UA})
     t0 = time.monotonic()
     el = lambda: round((time.monotonic() - t0) * 1000)
+    serr = lambda c: f"HTTP {c}" if c >= 500 else ""     # note only when erroring
     try:
         with opener.open(req, timeout=timeout) as r:
-            return True, r.status, "", el()
+            return r.status < 500, r.status, serr(r.status), el()
     except urllib.error.HTTPError as e:
-        return True, e.code, "", el()                 # responded -> reachable
+        return e.code < 500, e.code, serr(e.code), el()  # responded; 5xx = unhealthy
     except urllib.error.URLError as e:
         reason = getattr(e, "reason", e)
         # some hosts reject HEAD; retry GET once before declaring it dead
         try:
             req2 = urllib.request.Request(url, method="GET", headers={"User-Agent": UA})
             with opener.open(req2, timeout=timeout) as r:
-                return True, r.status, "", el()
+                return r.status < 500, r.status, serr(r.status), el()
         except urllib.error.HTTPError as e2:
-            return True, e2.code, "", el()
+            return e2.code < 500, e2.code, serr(e2.code), el()
         except Exception:
             return False, 0, str(reason), None
     except Exception as e:
@@ -361,6 +365,23 @@ def tcp_connect(host, port, family, timeout):
         except Exception:
             continue
     return False
+
+
+def tls_expiry_days(host, timeout):
+    """Days until the host's TLS cert expires (None if it can't be read). An
+    expired cert already fails http_probe (urllib verifies); this is the *early
+    warning* — surface a soon-to-expire cert before it takes the edge down."""
+    try:
+        ctx = ssl.create_default_context()
+        with socket.create_connection((host, 443), timeout=timeout) as sock:
+            with ctx.wrap_socket(sock, server_hostname=host) as ss:
+                cert = ss.getpeercert()
+        not_after = cert.get("notAfter") if cert else None
+        if not not_after:
+            return None
+        return round((ssl.cert_time_to_seconds(not_after) - time.time()) / 86400)
+    except Exception:
+        return None
 
 
 # --------------------------------------------------------------------------- #
@@ -429,14 +450,63 @@ def parse_aws(body):
         f"health feed: {len(disrupt)} disruption(s), max status {worst}"
 
 
+# RSS/Atom feeds keep resolved/historical entries around, so "feed not empty" is
+# not "currently broken" (same trap as the AWS feed). Mirror the AWS active window
+# and drop entries whose title says they're resolved.
+RSS_ACTIVE_WINDOW = 36 * 3600
+RSS_RESOLVED_WORDS = ("resolved", "closed", "completed", "post-incident",
+                      "postmortem", "mitigated")
+
+
 def parse_rss(body):
-    """RSS/Atom incident feed (e.g. Azure). An empty feed means all-clear; each
-    open <item>/<entry> is an active incident."""
-    low = body.lower()
-    n = low.count("<item") + low.count("<entry")
-    if n == 0:
-        return "UP", "No active incidents", "rss feed: 0 open items"
-    return "DEGRADED", f"{n} active incident(s)", f"rss feed: {n} open item(s)"
+    """RSS/Atom incident feed (e.g. Azure). Parse the XML and keep only entries
+    that are (a) not titled resolved/closed and (b) recent (within the active
+    window) when a date is parseable — so resolved or months-old items no longer
+    read as live incidents. Falls back to the old substring count if XML won't
+    parse."""
+    import xml.etree.ElementTree as ET
+    from email.utils import parsedate_to_datetime
+
+    def _tag(el):
+        return el.tag.rsplit("}", 1)[-1].lower()
+
+    try:
+        root = ET.fromstring(body.encode("utf-8") if isinstance(body, str) else body)
+    except Exception:
+        low = body.lower()
+        n = low.count("<item") + low.count("<entry")
+        if n == 0:
+            return "UP", "No active incidents", "rss feed: 0 open items"
+        return "DEGRADED", f"{n} active incident(s)", f"rss feed: {n} open item(s) (unparsed)"
+
+    now = time.time()
+    items = [el for el in root.iter() if _tag(el) in ("item", "entry")]
+    active = 0
+    for it in items:
+        title, date_s = "", ""
+        for child in it:
+            t = _tag(child)
+            if t == "title":
+                title = child.text or ""
+            elif t in ("pubdate", "published", "updated", "date") and not date_s:
+                date_s = child.text or ""
+        if any(w in title.lower() for w in RSS_RESOLVED_WORDS):
+            continue
+        ts = None
+        if date_s:
+            try:
+                ts = parsedate_to_datetime(date_s).timestamp()        # RFC822 (RSS)
+            except Exception:
+                try:
+                    ts = datetime.fromisoformat(date_s.replace("Z", "+00:00")).timestamp()  # ISO (Atom)
+                except Exception:
+                    ts = None
+        if ts is not None and now - ts > RSS_ACTIVE_WINDOW:
+            continue                                                  # stale; not active
+        active += 1
+    if active == 0:
+        return "UP", "No active incidents", f"rss feed: {len(items)} item(s), 0 active"
+    return "DEGRADED", f"{active} active incident(s)", f"rss feed: {active} active of {len(items)} item(s)"
 
 
 def status_feed(prov, opener, timeout):
@@ -574,8 +644,12 @@ def _region_result(kind, items, total, chronic):
             "real_down": real_down, "chronic": n_chronic, "items": items}
 
 
-def check_regions(prov, opener, timeout, chronic=None):
-    """Return {kind, up, total, real_down, chronic, items:[{name,status,ok,chronic}]} or None."""
+def check_regions(prov, opener, timeout, chronic=None, globe=None):
+    """Return {kind, up, total, real_down, chronic, items:[{name,status,ok,chronic}]} or None.
+    `globe` (dict with enabled/limit/locs) opts probe-kind regions into a second
+    vantage: any region that fails locally is re-checked via Globalping, so a
+    network path problem between this box and one region isn't reported as a
+    regional outage (the per-region analog of the host-level split-brain note)."""
     cfg = prov.get("regions")
     if not cfg:
         return None
@@ -609,16 +683,38 @@ def check_regions(prov, opener, timeout, chronic=None):
             return _region_result("products", items, total, chronic)
 
         if kind == "probe":
-            pairs = [(r, cfg["tmpl"].format(r)) for r in cfg["list"]]
+            pairs = {r: cfg["tmpl"].format(r) for r in cfg["list"]}
             items = []
             with cf.ThreadPoolExecutor(max_workers=12) as ex:
-                futs = {ex.submit(http_probe, u, opener, timeout): n for n, u in pairs}
+                futs = {ex.submit(http_probe, u, opener, timeout): n for n, u in pairs.items()}
                 for f in cf.as_completed(futs):
                     n = futs[f]
                     ok, _code, _, ms = f.result()
                     items.append({"name": n, "status": "up" if ok else "down", "ok": ok, "ms": ms})
+            # second vantage: re-check locally-failed regions via Globalping so a
+            # path problem from this one box doesn't read as a regional outage.
+            if globe and globe.get("enabled"):
+                failed = [it for it in items if not it["ok"]]
+                CAP = 6  # bound Globalping usage; uncapped failures stay 'down'
+                for it in failed[:CAP]:
+                    host = urllib.parse.urlparse(pairs[it["name"]]).hostname
+                    g = globalping(host, opener, timeout, min(globe.get("limit") or 3, 3),
+                                   globe.get("locs") or [])
+                    if g and not g.get("error") and g.get("up", 0) >= 1:
+                        it["ok"] = True               # reachable elsewhere -> not a regional outage
+                        it["status"] = "up (global only)"
+                        it["local_only"] = True
+                if len(failed) > CAP:
+                    items_note = f"{len(failed) - CAP} more failed region(s) not second-vantage-checked"
+                else:
+                    items_note = ""
+            else:
+                items_note = ""
             items.sort(key=lambda x: x["name"])
-            return _region_result("probe", items, len(items), chronic)
+            res = _region_result("probe", items, len(items), chronic)
+            if items_note:
+                res["note"] = items_note
+            return res
     except Exception as e:
         return {"kind": kind, "error": str(e)[:60], "up": 0, "total": 0, "items": []}
     return None
@@ -708,11 +804,15 @@ def check_provider(prov, opener, timeout, want_globe, globe_limit, globe_locs, c
     # 4. IPv6 reachability (separate path; often differs from IPv4)
     r["ipv6"] = {"ok": tcp_connect(host, 443, socket.AF_INET6, timeout), "host": host}
 
+    # 4b. TLS cert expiry — early warning before an expiring cert takes the edge down
+    r["tls"] = {"host": host, "expiry_days": tls_expiry_days(host, timeout)}
+
     # 5. globe (optional)
     r["globe"] = globalping(host, opener, timeout, globe_limit, globe_locs) if want_globe else None
 
-    # 6. region / component granularity
-    r["regions"] = check_regions(prov, opener, timeout, chronic)
+    # 6. region / component granularity (probe-kind regions get a 2nd vantage)
+    r["regions"] = check_regions(prov, opener, timeout, chronic,
+                                 globe={"enabled": want_globe, "limit": globe_limit, "locs": globe_locs})
     r["incidents"] = fetch_incidents(prov, opener, timeout)
 
     # ---- verdict -----------------------------------------------------------
