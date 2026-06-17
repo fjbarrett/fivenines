@@ -156,6 +156,36 @@ export function TopIncident({ providers }: { providers: ProviderAgg[] }) {
   );
 }
 
+// Dead-man's switch: scans run every 30 min, so data older than ~45 min means
+// the scanner (or its upload to Postgres) is likely down. Surface it loudly —
+// otherwise a frozen dashboard reads as "everything's fine".
+const STALE_MS = 45 * 60 * 1000;
+const VERY_STALE_MS = 2 * 60 * 60 * 1000;
+
+function staleAge(iso: string | null): string {
+  if (!iso) return "never";
+  const m = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 60000));
+  if (m < 60) return `${m}m`;
+  const h = Math.floor(m / 60);
+  return h < 24 ? `${h}h ${m % 60}m` : `${Math.floor(h / 24)}d`;
+}
+
+export function StaleBanner({ lastScan }: { lastScan: string | null }) {
+  const ageMs = lastScan ? Date.now() - new Date(lastScan).getTime() : Infinity;
+  if (ageMs <= STALE_MS) return null;
+  const t = ageMs > VERY_STALE_MS ? TONE.DOWN : TONE.DEGRADED;
+  return (
+    <div className={`mb-6 flex flex-wrap items-center gap-x-2.5 gap-y-1 rounded-xl px-4 py-3 ${t.badge}`}>
+      <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${t.dot}`} />
+      <span className="font-medium">Scan data is stale</span>
+      <span className="min-w-0 flex-1 text-sm opacity-90">
+        Last successful scan was {staleAge(lastScan)} ago (scans run every 30 min) — the scanner or its
+        upload is likely down, so the statuses below may not reflect reality.
+      </span>
+    </div>
+  );
+}
+
 export function ProviderGrid({ providers }: { providers: ProviderAgg[] }) {
   return (
     <section className="grid gap-3 grid-cols-[repeat(auto-fill,minmax(min(20rem,100%),1fr))]">

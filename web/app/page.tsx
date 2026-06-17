@@ -1,6 +1,6 @@
 import type { Dashboard } from "@/lib/aggregate";
 import { getDashboard } from "@/lib/data";
-import { Nav, ProviderGrid, TopIncident, isCdn, isHidden } from "@/components/dashboard";
+import { Nav, ProviderGrid, StaleBanner, TopIncident, isCdn, isHidden } from "@/components/dashboard";
 
 export const dynamic = "force-dynamic"; // always read the latest scan, server-side
 
@@ -17,6 +17,7 @@ export default async function Home() {
   return (
     <div className="mx-auto w-full max-w-7xl flex-1 px-6 py-6 lg:px-12">
       <Nav active="platforms" />
+      <StaleBanner lastScan={data?.lastScan ?? null} />
       <TopIncident providers={providers} />
 
       {error && (

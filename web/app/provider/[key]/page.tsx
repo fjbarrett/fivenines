@@ -74,17 +74,19 @@ function Regions({ d }: { d: ProviderDetail }) {
     );
   }
   const pct = (reg.up / reg.total) * 100;
-  // 0 = real outage (red), 1 = chronic re-route (amber, excluded), 2 = up
-  const rank = (i: RegionItem) => (i.chronic ? 1 : i.ok ? 2 : 0);
+  // 0 = real outage (red) · 1 = chronic re-route (amber, excluded) · 2 =
+  // global-only (sky: reachable elsewhere, a local path issue — excluded) · 3 = up
+  const rank = (i: RegionItem) => (i.chronic ? 1 : !i.ok ? 0 : i.local_only ? 2 : 3);
   const realDown = reg.items.filter((i) => rank(i) === 0).length;
-  const chronic = reg.items.filter((i) => i.chronic).length;
+  const chronic = reg.items.filter((i) => rank(i) === 1).length;
+  const localOnly = reg.items.filter((i) => rank(i) === 2).length;
   const listsAll = reg.kind !== "products";
 
-  // Surface problems directly; collapse the healthy majority (grouped by region).
+  // Surface anything not fully healthy; collapse the healthy majority.
   const problems = reg.items
-    .filter((i) => rank(i) !== 2)
+    .filter((i) => rank(i) !== 3)
     .sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name));
-  const healthy = reg.items.filter((i) => rank(i) === 2);
+  const healthy = reg.items.filter((i) => rank(i) === 3);
 
   const groups = new Map<string, RegionItem[]>();
   const loose: RegionItem[] = [];
@@ -120,6 +122,11 @@ function Regions({ d }: { d: ProviderDetail }) {
               {chronic} re-routed (excluded)
             </span>
           )}
+          {localOnly > 0 && (
+            <span className="ml-2 font-mono text-sky-400/80" title="failed from our prober but reachable via Globalping — a path problem between the box and the region, not a regional outage (excluded)">
+              {localOnly} global-only (excluded)
+            </span>
+          )}
           <span className="ml-2 text-xs text-slate-600">({reg.kind === "probe" ? "probed" : reg.kind})</span>
         </span>
         <span className="text-xs text-slate-500">{pct.toFixed(1)}%</span>
@@ -127,22 +134,33 @@ function Regions({ d }: { d: ProviderDetail }) {
       <div className="mb-4 h-1.5 w-full overflow-hidden rounded-full bg-white/10">
         <div className="h-full rounded-full bg-emerald-400" style={{ width: `${pct}%` }} />
       </div>
+      {reg.note && <p className="-mt-2 mb-3 text-xs text-slate-600">⚠ {reg.note}</p>}
 
       {problems.length > 0 ? (
         <div className="grid grid-cols-[repeat(auto-fill,minmax(10rem,1fr))] gap-1.5">
           {problems.map((it, i) => {
+            const r = rank(it);
             const cls =
-              rank(it) === 0
+              r === 0
                 ? "bg-rose-500/10 text-rose-300 ring-rose-500/30"
-                : "text-amber-300/70 ring-amber-400/20";
+                : r === 2
+                  ? "text-sky-300/70 ring-sky-400/20"
+                  : "text-amber-300/70 ring-amber-400/20";
+            const mark = r === 0 ? "● " : r === 2 ? "↪ " : "↻ ";
+            const title =
+              r === 1
+                ? `${it.status} · re-routed in ~every recent scan (excluded)`
+                : r === 2
+                  ? `${it.status} · reachable globally but not from our prober — local path issue (excluded)`
+                  : it.status;
             return (
               <Link
                 key={i}
                 href={regionLink(it.name)}
-                title={it.chronic ? `${it.status} · re-routed in ~every recent scan (excluded)` : it.status}
+                title={title}
                 className={`truncate rounded px-2 py-1 text-xs ring-1 transition hover:brightness-150 ${cls}`}
               >
-                {rank(it) === 0 ? "● " : "↻ "}
+                {mark}
                 {it.name}
               </Link>
             );
@@ -316,7 +334,7 @@ function Methods({ d }: { d: ProviderDetail }) {
       <div>
         <div
           className="mb-1 text-xs font-medium text-slate-400"
-          title="Any HTTP response — including 401/403/404 — counts as reachable: it means the edge answered. This measures edge reachability, not full service health."
+          title="Any HTTP response under 500 — including 401/403/404 — counts as reachable: the edge answered. A 5xx (service erroring) or transport failure counts as down. This measures edge reachability, not full service health."
         >
           HTTP reachability
         </div>
@@ -374,6 +392,14 @@ function Methods({ d }: { d: ProviderDetail }) {
                 <span className="text-slate-500">no AAAA route</span>
               )}
             </p>
+            {d.tls?.expiry_days != null && (
+              <p className="font-mono text-[11px] text-slate-600">
+                TLS cert:{" "}
+                <span className={d.tls.expiry_days <= 0 ? "text-rose-400" : d.tls.expiry_days <= 14 ? "text-amber-400/80" : "text-slate-500"}>
+                  {d.tls.expiry_days <= 0 ? "expired" : `expires in ${d.tls.expiry_days}d`}
+                </span>
+              </p>
+            )}
           </div>
         </details>
       </div>
@@ -587,6 +613,8 @@ export default async function ProviderPage({ params }: { params: Promise<{ key: 
   const observedMs = first && last ? new Date(last).getTime() - new Date(first).getTime() : 0;
   const limited = p.samples < FULL_HISTORY;
   const noFeed = d?.status.state === "n/a";
+  const stale = Date.now() - new Date(p.current.checked_at).getTime() > 45 * 60 * 1000;
+  const tlsDays = d?.tls?.expiry_days ?? null;
 
   return (
     <div className="mx-auto w-full max-w-7xl flex-1 px-6 py-6 lg:px-12">
@@ -606,11 +634,21 @@ export default async function ProviderPage({ params }: { params: Promise<{ key: 
             {p.current.note && <p className="mt-0.5 text-xs text-amber-400/90">⚠ {p.current.note}</p>}
           </div>
         </div>
-        <span
-          className={`font-mono text-sm font-semibold uppercase tracking-wider ${t.text}`}
-        >
-          {p.current.state}
-        </span>
+        <div className="flex flex-col items-end gap-1">
+          <span
+            className={`font-mono text-sm font-semibold uppercase tracking-wider ${t.text}`}
+          >
+            {p.current.state}
+          </span>
+          {p.pending && (
+            <span
+              className="rounded bg-amber-400/10 px-1.5 py-0.5 font-mono text-[10px] text-amber-400/80 ring-1 ring-amber-400/20"
+              title={`The latest scan reported ${p.rawState}, but a state change isn't shown until two consecutive scans agree — this filters out single-scan blips. Watch for confirmation on the next scan.`}
+            >
+              latest scan: {p.rawState} (unconfirmed)
+            </span>
+          )}
+        </div>
       </header>
 
       <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-1 text-sm text-slate-500">
@@ -626,12 +664,25 @@ export default async function ProviderPage({ params }: { params: Promise<{ key: 
             limited history
           </span>
         )}
-        {d?.http?.ms != null && (
+        {p.latencyMs != null && (
           <span>
-            median RTT <span className="font-mono text-slate-300">{d.http.ms}ms</span>
+            RTT <span className={`font-mono ${p.latencyRegressed ? "text-amber-400" : "text-slate-300"}`}>{p.latencyMs}ms</span>
+            {p.latencyRegressed && p.latencyBaselineMs != null && (
+              <span className="text-amber-400/70" title="Current edge latency is well above the recent median for this provider.">
+                {" "}elevated vs ~{p.latencyBaselineMs}ms
+              </span>
+            )}
           </span>
         )}
-        <span>last checked {ago(p.current.checked_at)}</span>
+        {tlsDays != null && tlsDays <= 14 && (
+          <span
+            className={tlsDays <= 0 ? "text-rose-400" : "text-amber-400/80"}
+            title={`TLS certificate for ${d?.tls?.host} ${tlsDays <= 0 ? "has expired" : `expires in ${tlsDays} day(s)`}.`}
+          >
+            TLS cert {tlsDays <= 0 ? "expired" : `expires in ${tlsDays}d`}
+          </span>
+        )}
+        <span className={stale ? "text-amber-400" : undefined}>last checked {ago(p.current.checked_at)}</span>
         {p.current.vantage && p.current.vantage !== "local" && (
           <span className="text-sky-400">via {p.current.vantage}</span>
         )}
@@ -645,9 +696,10 @@ export default async function ProviderPage({ params }: { params: Promise<{ key: 
       {noFeed && (
         <p className="mt-3 max-w-3xl text-xs text-slate-600">
           {p.name} publishes no machine-readable status feed, so availability here is inferred from
-          synthetic external reachability probes — any HTTP response (including 401/403/404) counts as
-          reachable. This reflects whether the edge answers our probes, not necessarily full service
-          health, and won&apos;t show incidents the provider hasn&apos;t surfaced publicly.
+          synthetic external reachability probes — any HTTP response under 500 (including 401/403/404)
+          counts as reachable, while a 5xx or transport failure counts as down. This reflects whether
+          the edge answers our probes, not necessarily full service health, and won&apos;t show
+          incidents the provider hasn&apos;t surfaced publicly.
         </p>
       )}
 
