@@ -148,7 +148,9 @@ export default async function RegionPage({
   const { r } = await searchParams;
   if (!r) notFound();
   const file = await readRegionFile(key);
-  const entry = file?.regions?.[r];
+  // own-property lookup only — guards against ?r=__proto__/constructor etc.
+  const entry =
+    file && Object.prototype.hasOwnProperty.call(file.regions, r) ? file.regions[r] : undefined;
   if (!file || !entry || entry.points.length === 0) notFound();
 
   const last = entry.points[entry.points.length - 1];

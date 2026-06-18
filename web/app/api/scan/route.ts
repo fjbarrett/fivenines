@@ -10,9 +10,12 @@ export const dynamic = "force-dynamic";
 // POST /api/scan — run cloudcheck.py once (it appends to results/history.jsonl)
 // and return the freshly aggregated dashboard.
 export async function POST() {
-  // In remote mode (deployed on Vercel) scans are produced by the Proxmox box
-  // on a cron and pushed to Blob — there is no local python here to invoke.
-  if (process.env.CLOUDCHECK_HISTORY_URL) {
+  // In remote mode (deployed on Vercel, or local dev pointed at the DB) scans
+  // are produced by the Proxmox box on a cron and pushed to Postgres — there is
+  // no local python here to invoke, and we must NOT expose a subprocess spawn on
+  // a public, unauthenticated endpoint. DATABASE_URL is the same signal the data
+  // layer (getPool) uses to decide it is remote-backed.
+  if (process.env.DATABASE_URL) {
     return NextResponse.json(
       { error: "Scans run on the Proxmox box every 30 min; this dashboard is read-only." },
       { status: 501 }
