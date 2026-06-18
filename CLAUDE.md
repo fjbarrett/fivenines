@@ -36,16 +36,29 @@ Proxmox LXC 106 (/opt/shores)                  DO droplet "postgres" (sfo3)     
   the `pg` npm package in `/opt/shores/node_modules` (deploy.sh does NOT run npm install — install
   deps manually once: `pct exec 106 -- bash -lc 'cd /opt/shores && npm install pg'`).
 - **Database:** DO droplet **`postgres`** (`209.38.79.145`, sfo3, shared with other apps), SSH
-  `frank@209.38.79.145` (passwordless sudo). Postgres 16, public on `0.0.0.0:5432`, ufw-open,
-  `pg_hba` = `hostssl ... scram-sha-256` (non-SSL rejected, self-signed cert). Dedicated role+db
-  `fivenines`. Schema in `db/schema.sql` (tables `history`, `snapshots`). `DATABASE_URL` has **no**
-  `?sslmode=` (newer `pg` would enforce CA verification of the self-signed cert); SSL is forced in
-  code via `ssl:{rejectUnauthorized:false}` in `web/lib/db.ts` + `scanner/upload.mjs`.
+  `frank@209.38.79.145` (passwordless sudo). Postgres 16, port 5432 still open at the firewall
+  (ufw `Anywhere`), `pg_hba` = `hostssl ... scram-sha-256` (non-SSL rejected, self-signed cert).
+  Dedicated role+db `fivenines`. Schema in `db/schema.sql` (tables `history`, `snapshots`).
+  `DATABASE_URL` has **no** `?sslmode=`; TLS is **pinned** in code (`ssl:{ca:POSTGRES_CA,
+  rejectUnauthorized:true, checkServerIdentity:()=>undefined}`) — CA is the server's public cert in
+  `web/lib/db-ca.ts` (mirrored in `scanner/upload.mjs`), **expires 2027-03-29** (rotation cmd in
+  that file). **pg_hba hardening (2026-06-17 security review):** remote `postgres` superuser is
+  `reject`ed (admin via local peer only); the `fivenines` role is scoped to the `fivenines` db
+  (`hostssl all fivenines 0.0.0.0/0 reject` for every other db) so a leaked cred can't pivot to
+  the other tenants; `PUBLIC CONNECT` on the `fivenines` db is revoked (only the `fivenines` role
+  connects). Backup at `/etc/postgresql/16/main/pg_hba.conf.bak.20260617`. **Still open:** port
+  5432 is internet-reachable (needs Vercel Secure Compute/static-egress on a Pro plan to allowlist),
+  and `appuser`/`markus` are not yet db-scoped (ownership: appuser→{appdb,ipsuite,keep},
+  markus→markus_downley — left on the catch-all to avoid breaking those apps unverified).
 - **Vercel:** project `fivenines`, **Root Directory `web`**, framework Next.js, Deployment
   Protection off. Production env: `DATABASE_URL`, `NEXT_PUBLIC_GA_ID` (GA4 `G-VD9NWJK6PP`).
   `DATABASE_URL` is also set for Development; Preview was blocked by a CLI bug (54.13.0) — add via
   dashboard if PR previews need data. Domains: `fivenines.vercel.app` (primary) +
-  `cloudshores.vercel.app` (old, still resolves).
+  `cloudshores.vercel.app` (old, still resolves). **Security headers** (CSP/HSTS/X-Frame-Options
+  etc.) are set in `web/next.config.ts` (CSP allows GA inline via `'unsafe-inline'`). **WAF:** one
+  custom rate-limit rule `ratelimit-dynamic` (120 req/60s/IP, deny excess) on `/api`+`/provider`
+  (`vercel firewall rules list`); Hobby plan caps it at a single rate-limit rule. Read paths use
+  60s ISR/CDN caching (not `force-dynamic`) to cap droplet load.
 - **App read:** `web/lib/data.ts` queries Postgres when `DATABASE_URL` is set, else falls back to
   local `results/` (so `npm run dev` works offline). `POST /api/scan` is 501 in remote mode.
 
